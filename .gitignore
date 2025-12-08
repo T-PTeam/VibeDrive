@@ -35,6 +35,8 @@ backend-php/bootstrap/cache/*
 backend-php/.phpunit.result.cache
 backend-php/.php_cs.cache
 backend-php/composer.phar
+composer.phar
+/vendor/
 
 # .NET (microservice-net)
 microservice-net/bin/
@@ -103,4 +105,3 @@ temp/
 tmp/
 .env.local
 .env.*.local
-
