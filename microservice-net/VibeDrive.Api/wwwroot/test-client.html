@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignalR DriverHub Test Client</title>
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        input {
+            width: 200px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .messages {
+            max-height: 300px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .message {
+            padding: 8px;
+            margin: 5px 0;
+            border-left: 3px solid #007bff;
+            background: #f8f9fa;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .message-time {
+            font-size: 0.85em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚗 SignalR DriverHub Test Client</h1>
+        
+        <div class="section">
+            <h2>Connection</h2>
+            <div>
+                <input type="text" id="userIdInput" placeholder="Enter User ID" value="user123">
+                <input type="text" id="serverUrlInput" placeholder="Server URL" value="http://localhost:5009">
+                <button id="connectBtn" onclick="connect()">Connect</button>
+                <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            </div>
+            <div id="connectionStatus" class="status disconnected">Disconnected</div>
+        </div>
+
+        <div class="section">
+            <h2>Test SignalR Message</h2>
+            <div>
+                <input type="text" id="testMessageInput" placeholder="Enter test message" value="Hello from client!">
+                <button onclick="sendTestMessage()" id="sendBtn" disabled>Send Test Message</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Messages</h2>
+            <div id="messages" class="messages"></div>
+            <button onclick="clearMessages()" style="margin-top: 10px;">Clear Messages</button>
+        </div>
+    </div>
+
+    <script>
+        let connection = null;
+        const userIdInput = document.getElementById('userIdInput');
+        const serverUrlInput = document.getElementById('serverUrlInput');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const messagesDiv = document.getElementById('messages');
+
+        function addMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            const time = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `<div class="message-time">[${time}]</div><div>${message}</div>`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            if (connected) {
+                connectionStatus.textContent = 'Connected';
+                connectionStatus.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendBtn.disabled = false;
+            } else {
+                connectionStatus.textContent = 'Disconnected';
+                connectionStatus.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
+            }
+        }
+
+        async function connect() {
+            const userId = userIdInput.value || 'user123';
+            const serverUrl = serverUrlInput.value || 'http://localhost:5009';
+            
+            if (!userId) {
+                alert('Please enter a User ID');
+                return;
+            }
+
+            try {
+                connection = new signalR.HubConnectionBuilder()
+                    .withUrl(`${serverUrl}/driverhub?userId=${userId}`)
+                    .withAutomaticReconnect()
+                    .build();
+
+                connection.on("ReceiveMessage", (message) => {
+                    let displayMessage = message;
+                    try {
+                        if (typeof message === 'string') {
+                            const parsed = JSON.parse(message);
+                            displayMessage = JSON.stringify(parsed, null, 2);
+                        } else if (typeof message === 'object') {
+                            displayMessage = JSON.stringify(message, null, 2);
+                        }
+                    } catch (e) {
+                        displayMessage = message;
+                    }
+                    addMessage(`📨 Received from Redis:\n${displayMessage}`, 'received');
+                });
+
+                connection.onreconnecting(() => {
+                    addMessage('🔄 Reconnecting...', 'info');
+                });
+
+                connection.onreconnected(() => {
+                    addMessage('✅ Reconnected', 'success');
+                });
+
+                connection.onclose(() => {
+                    addMessage('❌ Connection closed', 'error');
+                    updateStatus(false);
+                });
+
+                await connection.start();
+                addMessage(`✅ Connected to SignalR Hub as User ID: ${userId}`, 'success');
+                updateStatus(true);
+            } catch (error) {
+                addMessage(`❌ Connection error: ${error.message}`, 'error');
+                console.error('Connection error:', error);
+            }
+        }
+
+        async function disconnect() {
+            if (connection) {
+                await connection.stop();
+                connection = null;
+                addMessage('🔌 Disconnected', 'info');
+                updateStatus(false);
+            }
+        }
+
+        async function sendTestMessage() {
+            if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
+                alert('Not connected to SignalR Hub');
+                return;
+            }
+
+            const message = document.getElementById('testMessageInput').value;
+            if (!message) {
+                alert('Please enter a message');
+                return;
+            }
+
+            try {
+                await connection.invoke("ReceiveMessage", message);
+                addMessage(`📤 Sent: ${message}`, 'sent');
+            } catch (error) {
+                addMessage(`❌ Error sending message: ${error.message}`, 'error');
+                console.error('Send error:', error);
+            }
+        }
+
+        function clearMessages() {
+            messagesDiv.innerHTML = '';
+        }
+    </script>
+</body>
+</html>
+
