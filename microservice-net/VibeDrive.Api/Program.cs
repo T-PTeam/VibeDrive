@@ -57,14 +57,18 @@ if (builder.Environment.IsDevelopment())
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://10.0.2.2:5009",
-        "http://10.0.2.2:7217"
+        "http://10.0.2.2:7217",
+        "http://31.43.51.42:5009",
+        "http://31.43.51.42:7217",
+        "http://192.168.0.155:5009",
+        "http://192.168.0.155:7217"
     };
 
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("AllowMobileApp", policy =>
         {
-            policy.WithOrigins(developmentOrigins.ToArray())
+            policy.SetIsOriginAllowed(origin => true)
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials()
@@ -101,7 +105,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "";
+if (!string.IsNullOrEmpty(urls) && urls.Contains("https://"))
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseStaticFiles();
 
