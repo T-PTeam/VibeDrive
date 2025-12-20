@@ -23,3 +23,16 @@ export const API_CONFIG = {
   baseUrl: getApiUrl(),
   signalRHub: '/driverhub',
 };
+
+export const getPhpApiUrl = (): string => {
+  if (__DEV__) {
+    if (Platform.OS === 'android' || Platform.OS === 'ios') {
+      return process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.0.155/api';
+    }
+    if (Platform.OS === 'web') {
+      return 'http://localhost/api';
+    }
+  }
+
+  return process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.0.155/api';
+};

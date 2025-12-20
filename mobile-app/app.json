@@ -12,13 +12,17 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vibedrive.mobile"
+      "bundleIdentifier": "com.vibedrive.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "VibeDrive needs access to your microphone to record voice commands while driving."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000000"
       },
-      "package": "com.vibedrive.mobile"
+      "package": "com.vibedrive.mobile",
+      "permissions": ["RECORD_AUDIO"]
     },
     "web": {}
   }
