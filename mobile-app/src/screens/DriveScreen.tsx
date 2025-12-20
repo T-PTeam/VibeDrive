@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import { signalRService } from '../services/SignalRService';
 import { logger } from '../services/LoggerService';
+import { audioRecordingService } from '../services/AudioRecordingService';
+import { apiService } from '../services/ApiService';
+import { getPhpApiUrl } from '../config/api';
 
 type DriveScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -20,6 +30,8 @@ interface Props {
 
 export default function DriveScreen({ navigation, route }: Props) {
   const [isRecording, setIsRecording] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const userId = route.params?.userId || 'driver123';
 
   useEffect(() => {
@@ -32,15 +44,77 @@ export default function DriveScreen({ navigation, route }: Props) {
       }
     };
 
+    const initializeServices = async () => {
+      apiService.setBaseUrl(getPhpApiUrl());
+      const hasPermission = await audioRecordingService.requestPermissions();
+      if (!hasPermission) {
+        Alert.alert(
+          'Microphone Permission',
+          'Microphone permission is required to record audio. Please enable it in settings.'
+        );
+      }
+    };
+
     connectSignalR();
+    initializeServices();
 
     return () => {
       signalRService.disconnect();
+      if (audioRecordingService.getIsRecording()) {
+        audioRecordingService.cancelRecording();
+      }
     };
   }, [userId]);
 
-  const handleMicrophonePress = () => {
-    setIsRecording(!isRecording);
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+
+    if (isRecording) {
+      interval = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setRecordingDuration(0);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isRecording]);
+
+  const handleMicrophonePress = async () => {
+    if (isRecording) {
+      try {
+        setIsUploading(true);
+        const result = await audioRecordingService.stopRecording();
+        setIsRecording(false);
+        setRecordingDuration(0);
+
+        if (result) {
+          logger.info('DriveScreen', 'Recording stopped', result);
+          await apiService.uploadAudio(result.uri, userId, {
+            duration: result.duration,
+          });
+          Alert.alert('Success', 'Audio uploaded successfully');
+        }
+      } catch (error) {
+        logger.error('DriveScreen', 'Failed to process recording', error);
+        Alert.alert('Error', 'Failed to upload audio. Please try again.');
+      } finally {
+        setIsUploading(false);
+      }
+    } else {
+      try {
+        await audioRecordingService.startRecording();
+        setIsRecording(true);
+        setRecordingDuration(0);
+      } catch (error) {
+        logger.error('DriveScreen', 'Failed to start recording', error);
+        Alert.alert('Error', 'Failed to start recording. Please try again.');
+      }
+    }
   };
 
   const handleLogout = async () => {
@@ -90,7 +164,20 @@ export default function DriveScreen({ navigation, route }: Props) {
         >
           <Text style={styles.microphoneIcon}>🎤</Text>
         </TouchableOpacity>
-        {isRecording && <Text style={styles.statusText}>Recording...</Text>}
+        {isRecording && (
+          <Text style={styles.statusText}>
+            Recording...{' '}
+            {recordingDuration > 0 && `${Math.floor(recordingDuration)}s`}
+          </Text>
+        )}
+        {isUploading && (
+          <View style={styles.uploadingContainer}>
+            <ActivityIndicator size="small" color="#888888" />
+            <Text style={[styles.uploadingText, { marginLeft: 8 }]}>
+              Uploading...
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -126,6 +213,15 @@ const styles = StyleSheet.create({
   },
   statusText: {
     marginTop: 24,
+    fontSize: 14,
+    color: '#888888',
+  },
+  uploadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  uploadingText: {
     fontSize: 14,
     color: '#888888',
   },
