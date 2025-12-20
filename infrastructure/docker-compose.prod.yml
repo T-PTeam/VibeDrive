@@ -1,0 +1,45 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: vibedrive-redis-prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data-prod:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - vibedrive-network-prod
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../microservice-net
+      dockerfile: VibeDrive.Api/Dockerfile
+    container_name: vibedrive-api-prod
+    ports:
+      - "5009:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=
+      - Redis__ConnectionString=${REDIS_CONNECTION_STRING:-redis:6379}
+      - Cors__AllowedOrigins=${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - vibedrive-network-prod
+    restart: unless-stopped
+
+volumes:
+  redis-data-prod:
+
+networks:
+  vibedrive-network-prod:
+    driver: bridge
+
