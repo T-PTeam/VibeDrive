@@ -34,5 +34,5 @@ export const getPhpApiUrl = (): string => {
     }
   }
 
-  return process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.0.155/api';
+  return process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.1.100/api';
 };

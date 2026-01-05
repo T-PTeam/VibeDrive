@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using VibeDrive.Api.Converters;
 using VibeDrive.Api.Models;
 using System.Text.Json.Serialization;
+using StackExchange.Redis;
+using System.Text.Json;
 
 namespace VibeDrive.Api.Controllers;
 
@@ -9,6 +11,12 @@ namespace VibeDrive.Api.Controllers;
 [Route("api/v1")]
 public class DriverController : ControllerBase
 {
+    private readonly IConnectionMultiplexer _redis;
+
+    public DriverController(IConnectionMultiplexer redis)
+    {
+        _redis = redis;
+    }
     [HttpGet("driver_profile/{id}")]
     public IActionResult GetProfile(int id)
     {
@@ -60,6 +68,31 @@ public class DriverController : ControllerBase
 
         return Ok(ServerResponse<RideDto>.Success(ride, "Ride created successfully"));
     }
+
+    [HttpPost("redis/publish")]
+    public async Task<IActionResult> PublishToRedis([FromBody] RedisPublishRequest request)
+    {
+        try
+        {
+            var subscriber = _redis.GetSubscriber();
+            var result = await subscriber.PublishAsync(request.Channel, request.Message);
+            
+            return Ok(ServerResponse<object>.Success(new { subscribers = result }, "Message published to Redis"));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ServerResponse<object>.Error($"Failed to publish to Redis: {ex.Message}"));
+        }
+    }
+}
+
+public class RedisPublishRequest
+{
+    [JsonPropertyName("channel")]
+    public string Channel { get; set; } = string.Empty;
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
 }
 
 public class DriverProfileDto

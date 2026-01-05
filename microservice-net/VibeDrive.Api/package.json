@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "expo-speech": "^14.0.8"
+  }
+}

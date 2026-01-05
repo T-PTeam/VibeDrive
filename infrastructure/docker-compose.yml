@@ -87,6 +87,10 @@ services:
       - Cors__AllowedOrigins__7=http://31.43.51.42:7217
       - Cors__AllowedOrigins__8=http://192.168.0.155:5009
       - Cors__AllowedOrigins__9=http://192.168.0.155:7217
+      - Cors__AllowedOrigins__10=http://192.168.56.1:5009
+      - Cors__AllowedOrigins__11=http://192.168.56.1:7217
+      - Cors__AllowedOrigins__12=http://192.168.1.100:5009
+      - Cors__AllowedOrigins__13=http://192.168.1.100:7217
     depends_on:
       redis:
         condition: service_healthy
@@ -122,8 +126,8 @@ services:
     image: nginx:alpine
     container_name: vibedrive-nginx
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"
+      - "8443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/conf.d:/etc/nginx/conf.d
