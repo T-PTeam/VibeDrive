@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@config-plugins/react-native-ble-plx": "^7.0.0",
+    "react-native-ble-plx": "^3.5.0"
+  }
+}

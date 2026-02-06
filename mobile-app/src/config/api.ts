@@ -5,17 +5,11 @@ const DEV_API_URL =
 
 export const getApiUrl = (): string => {
   if (__DEV__) {
-    if (Platform.OS === 'android') {
-      return DEV_API_URL;
-    }
-    if (Platform.OS === 'ios') {
-      return DEV_API_URL;
-    }
     if (Platform.OS === 'web') {
       return 'http://localhost:5009';
     }
+    return DEV_API_URL;
   }
-
   return process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.155:5009';
 };
 

@@ -70,21 +70,25 @@ class SignalRService {
         .withUrl(`${this.baseUrl}/driverhub?userId=${this.userId}`, {
           skipNegotiation: false,
           transport:
-            signalR.HttpTransportType.WebSockets |
-            signalR.HttpTransportType.LongPolling,
+            signalR.HttpTransportType.LongPolling |
+            signalR.HttpTransportType.WebSockets,
         })
         .withAutomaticReconnect({
           nextRetryDelayInMilliseconds: (retryContext) => {
             if (retryContext.previousRetryCount < 3) {
-              return 1000;
+              return 2000;
             }
             if (retryContext.previousRetryCount < 10) {
               return 5000;
             }
-            return 10000;
+            return 15000;
           },
         })
+        .configureLogging(signalR.LogLevel.Warning)
         .build();
+
+      (this.connection as any).serverTimeoutInMilliseconds = 30000;
+      (this.connection as any).keepAliveIntervalInMilliseconds = 15000;
 
       this.connection.on('ReceiveMessage', (message: string) => {
         logger.debug('SignalR', 'Received message', { message });
@@ -157,11 +161,14 @@ class SignalRService {
       });
     } catch (error: any) {
       this.notifyStateChange('Disconnected');
+      const message =
+        error?.message ||
+        (typeof error === 'string' ? error : 'Unknown error');
       logger.error('SignalR', 'Connection failed', error, {
         baseUrl: this.baseUrl,
         userId: this.userId,
+        message,
       });
-      throw error;
     }
   }
 

@@ -10,12 +10,65 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import * as Speech from 'expo-speech';
+import {
+  Audio,
+  InterruptionModeIOS,
+  InterruptionModeAndroid,
+} from 'expo-av';
 import { RootStackParamList } from '../../App';
+
+const SPEAKER_AUDIO_MODE = {
+  allowsRecordingIOS: false,
+  playsInSilentModeIOS: true,
+  staysActiveInBackground: false,
+  interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+  interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+  shouldDuckAndroid: false,
+  playThroughEarpieceAndroid: false,
+};
+
+async function activateLoudspeakerThenSpeak(
+  text: string,
+  onError: (err: unknown) => void
+): Promise<void> {
+  await Audio.setAudioModeAsync(SPEAKER_AUDIO_MODE);
+  let silentSound: Audio.Sound | null = null;
+  try {
+    const { sound } = await Audio.Sound.createAsync({
+      uri: 'https://raw.githubusercontent.com/anars/blank-audio/master/1-second-of-silence.mp3',
+    });
+    silentSound = sound;
+    await sound.playAsync();
+  } catch (_) { }
+  Speech.speak(text, {
+    language: 'en-US',
+    pitch: 1.05,
+    rate: 0.92,
+    volume: 1.0,
+    onStart: () => {
+      logger.debug('DriveScreen', 'AI TTS started');
+    },
+    onDone: () => {
+      logger.debug('DriveScreen', 'AI TTS finished');
+      if (silentSound) {
+        silentSound.unloadAsync().catch(() => {});
+      }
+    },
+    onError: (err) => {
+      logger.error('DriveScreen', 'AI TTS error', err);
+      if (silentSound) {
+        silentSound.unloadAsync().catch(() => {});
+      }
+      onError(err);
+    },
+  });
+}
 import { signalRService } from '../services/SignalRService';
 import { logger } from '../services/LoggerService';
 import { audioRecordingService } from '../services/AudioRecordingService';
 import { redisService } from '../services/RedisService';
 import { spotifyService } from '../services/SpotifyService';
+import { ledController } from '../services/LEDController';
 
 type DriveScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -29,10 +82,16 @@ interface Props {
   route: DriveScreenRouteProp;
 }
 
+const LED_SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
+const LED_CHARACTERISTIC_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+const LED_DEVICE_NAME = 'VibeDrive Controller';
+
 export default function DriveScreen({ navigation, route }: Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [ledConnecting, setLedConnecting] = useState(false);
+  const [ledConnected, setLedConnected] = useState(false);
   const userId = route.params?.userId || 'driver123';
 
   useEffect(() => {
@@ -45,7 +104,21 @@ export default function DriveScreen({ navigation, route }: Props) {
       }
     };
 
+    const setSpeakerAudioMode = async () => {
+      try {
+        await Audio.setAudioModeAsync(SPEAKER_AUDIO_MODE);
+      } catch (e) {
+        logger.warn('DriveScreen', 'setSpeakerAudioMode failed', e);
+      }
+    };
+
     const initializeServices = async () => {
+      await setSpeakerAudioMode();
+      ledController.initialize({
+        serviceUUID: LED_SERVICE_UUID,
+        characteristicUUID: LED_CHARACTERISTIC_UUID,
+        deviceName: LED_DEVICE_NAME,
+      });
       const hasPermission = await audioRecordingService.requestPermissions();
       if (!hasPermission) {
         Alert.alert(
@@ -78,6 +151,11 @@ export default function DriveScreen({ navigation, route }: Props) {
         } else {
           Alert.alert('Music', 'Playing music on Spotify');
         }
+
+        if (ledController.isConnected()) {
+          const color = ledController.getColorForTrigger('play_music');
+          await ledController.setColor(color);
+        }
       });
 
       signalRService.onMessage('ai_response', async (message, parsed) => {
@@ -86,13 +164,19 @@ export default function DriveScreen({ navigation, route }: Props) {
           parsed,
         });
 
-        const aiMessage = parsed?.data?.message || parsed?.message || message;
+        const aiMessage =
+          typeof parsed?.data?.message === 'string'
+            ? parsed.data.message
+            : typeof parsed?.message === 'string'
+              ? parsed.message
+              : typeof message === 'string'
+                ? message
+                : null;
         if (aiMessage) {
           try {
-            Speech.speak(aiMessage, {
-              language: 'en',
-              pitch: 1.0,
-              rate: 0.9,
+            Speech.stop();
+            await activateLoudspeakerThenSpeak(aiMessage, () => {
+              Alert.alert('AI Assistant', aiMessage);
             });
             logger.info('DriveScreen', 'Spoke AI response', {
               message: aiMessage,
@@ -101,6 +185,11 @@ export default function DriveScreen({ navigation, route }: Props) {
             logger.error('DriveScreen', 'Failed to speak AI response', error);
             Alert.alert('AI Assistant', aiMessage);
           }
+        }
+
+        if (ledController.isConnected()) {
+          const color = ledController.getColorForTrigger('ai_response');
+          await ledController.setColor(color);
         }
       });
     };
@@ -153,12 +242,7 @@ export default function DriveScreen({ navigation, route }: Props) {
             result.duration
           );
 
-          if (success) {
-            Alert.alert(
-              'Success',
-              'Audio recording saved and published to Redis'
-            );
-          } else {
+          if (!success) {
             Alert.alert(
               'Warning',
               'Recording saved but failed to publish to Redis'
@@ -192,10 +276,52 @@ export default function DriveScreen({ navigation, route }: Props) {
     navigation.navigate('SubscriptionPrices');
   };
 
+  const handleConnectLED = async () => {
+    setLedConnecting(true);
+    try {
+      const ok = await ledController.connect();
+      setLedConnected(ok);
+      if (ok) {
+        Alert.alert('LED', 'Connected to ' + LED_DEVICE_NAME);
+      } else {
+        Alert.alert(
+          'LED',
+          'Could not find "' +
+            LED_DEVICE_NAME +
+            '". Make sure the virtual peripheral is advertising and uses service UUID ' +
+            LED_SERVICE_UUID
+        );
+      }
+    } catch (e) {
+      setLedConnected(false);
+      Alert.alert('LED', 'Connect failed. Is Bluetooth on?');
+    } finally {
+      setLedConnecting(false);
+    }
+  };
+
+  const handleDisconnectLED = async () => {
+    await ledController.disconnect();
+    setLedConnected(false);
+  };
+
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerButtons}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={ledConnected ? handleDisconnectLED : handleConnectLED}
+            disabled={ledConnecting}
+          >
+            <Text style={styles.headerButtonText}>
+              {ledConnecting
+                ? '...'
+                : ledConnected
+                  ? 'LED ✓'
+                  : 'Connect LED'}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={handleViewPrices}
@@ -213,7 +339,7 @@ export default function DriveScreen({ navigation, route }: Props) {
         </View>
       ),
     });
-  }, [navigation]);
+  }, [navigation, ledConnected, ledConnecting]);
 
   return (
     <View style={styles.container}>
