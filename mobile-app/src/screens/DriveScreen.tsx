@@ -9,12 +9,13 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import * as Speech from 'expo-speech';
 import { RootStackParamList } from '../../App';
 import { signalRService } from '../services/SignalRService';
 import { logger } from '../services/LoggerService';
 import { audioRecordingService } from '../services/AudioRecordingService';
-import { apiService } from '../services/ApiService';
-import { getPhpApiUrl } from '../config/api';
+import { redisService } from '../services/RedisService';
+import { spotifyService } from '../services/SpotifyService';
 
 type DriveScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -45,7 +46,6 @@ export default function DriveScreen({ navigation, route }: Props) {
     };
 
     const initializeServices = async () => {
-      apiService.setBaseUrl(getPhpApiUrl());
       const hasPermission = await audioRecordingService.requestPermissions();
       if (!hasPermission) {
         Alert.alert(
@@ -53,12 +53,65 @@ export default function DriveScreen({ navigation, route }: Props) {
           'Microphone permission is required to record audio. Please enable it in settings.'
         );
       }
+
+      const spotifyClientId = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID || '';
+      const spotifyRedirectUri =
+        process.env.EXPO_PUBLIC_SPOTIFY_REDIRECT_URI ||
+        'vibedrive://spotify-callback';
+      if (spotifyClientId) {
+        spotifyService.initialize(spotifyClientId, spotifyRedirectUri);
+      }
+    };
+
+    const setupSignalRHandlers = () => {
+      signalRService.onMessage('play_music', async (message, parsed) => {
+        logger.info('DriveScreen', 'Received play_music command', {
+          message,
+          parsed,
+        });
+
+        const trackData = parsed?.data || parsed?.track || message;
+        const success = await spotifyService.playMusic(trackData);
+
+        if (!success) {
+          logger.warn('DriveScreen', 'Failed to play music', { trackData });
+        } else {
+          Alert.alert('Music', 'Playing music on Spotify');
+        }
+      });
+
+      signalRService.onMessage('ai_response', async (message, parsed) => {
+        logger.info('DriveScreen', 'Received AI response', {
+          message,
+          parsed,
+        });
+
+        const aiMessage = parsed?.data?.message || parsed?.message || message;
+        if (aiMessage) {
+          try {
+            Speech.speak(aiMessage, {
+              language: 'en',
+              pitch: 1.0,
+              rate: 0.9,
+            });
+            logger.info('DriveScreen', 'Spoke AI response', {
+              message: aiMessage,
+            });
+          } catch (error) {
+            logger.error('DriveScreen', 'Failed to speak AI response', error);
+            Alert.alert('AI Assistant', aiMessage);
+          }
+        }
+      });
     };
 
     connectSignalR();
     initializeServices();
+    setupSignalRHandlers();
 
     return () => {
+      signalRService.removeMessageHandler('play_music');
+      signalRService.removeMessageHandler('ai_response');
       signalRService.disconnect();
       if (audioRecordingService.getIsRecording()) {
         audioRecordingService.cancelRecording();
@@ -94,14 +147,27 @@ export default function DriveScreen({ navigation, route }: Props) {
 
         if (result) {
           logger.info('DriveScreen', 'Recording stopped', result);
-          await apiService.uploadAudio(result.uri, userId, {
-            duration: result.duration,
-          });
-          Alert.alert('Success', 'Audio uploaded successfully');
+          const success = await redisService.publishAudioRecording(
+            userId,
+            result.uri,
+            result.duration
+          );
+
+          if (success) {
+            Alert.alert(
+              'Success',
+              'Audio recording saved and published to Redis'
+            );
+          } else {
+            Alert.alert(
+              'Warning',
+              'Recording saved but failed to publish to Redis'
+            );
+          }
         }
       } catch (error) {
         logger.error('DriveScreen', 'Failed to process recording', error);
-        Alert.alert('Error', 'Failed to upload audio. Please try again.');
+        Alert.alert('Error', 'Failed to process recording. Please try again.');
       } finally {
         setIsUploading(false);
       }
@@ -173,9 +239,7 @@ export default function DriveScreen({ navigation, route }: Props) {
         {isUploading && (
           <View style={styles.uploadingContainer}>
             <ActivityIndicator size="small" color="#888888" />
-            <Text style={[styles.uploadingText, { marginLeft: 8 }]}>
-              Uploading...
-            </Text>
+            <Text style={styles.uploadingText}>Uploading...</Text>
           </View>
         )}
       </View>
@@ -224,6 +288,7 @@ const styles = StyleSheet.create({
   uploadingText: {
     fontSize: 14,
     color: '#888888',
+    marginLeft: 8,
   },
   headerButtons: {
     flexDirection: 'row',

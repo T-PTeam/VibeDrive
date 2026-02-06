@@ -38,6 +38,19 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 
 builder.Services.AddSingleton<IConnectionManager, ConnectionManager>();
 
+builder.Services.AddHttpClient();
+
+var openAIApiKey = builder.Configuration["OpenAI:ApiKey"] 
+    ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") 
+    ?? string.Empty;
+builder.Services.AddSingleton<IOpenAIService>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<OpenAIService>>();
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var httpClient = httpClientFactory.CreateClient();
+    return new OpenAIService(openAIApiKey, logger, httpClient);
+});
+
 builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();

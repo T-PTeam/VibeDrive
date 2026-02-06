@@ -14,7 +14,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vibedrive.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "VibeDrive needs access to your microphone to record voice commands while driving."
+        "NSMicrophoneUsageDescription": "VibeDrive needs access to your microphone to record voice commands while driving.",
+        "LSApplicationQueriesSchemes": ["spotify", "spotify"],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -24,6 +26,13 @@
       "package": "com.vibedrive.mobile",
       "permissions": ["RECORD_AUDIO"]
     },
-    "web": {}
+    "web": {},
+    "scheme": "vibedrive",
+    "extra": {
+      "eas": {
+        "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"
+      }
+    },
+    "plugins": ["expo-secure-store", "expo-web-browser"]
   }
 }

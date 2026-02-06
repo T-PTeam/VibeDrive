@@ -1,6 +1,8 @@
 import * as signalR from '@microsoft/signalr';
 import { logger } from './LoggerService';
 
+export type MessageHandler = (message: string, parsed?: any) => void;
+
 export type ConnectionState =
   | 'Disconnected'
   | 'Connecting'
@@ -12,6 +14,7 @@ class SignalRService {
   private baseUrl: string = 'http://localhost:5009';
   private userId: string = '';
   private onStateChangeCallback?: (state: ConnectionState) => void;
+  private messageHandlers: Map<string, MessageHandler> = new Map();
 
   setBaseUrl(url: string) {
     this.baseUrl = url;
@@ -23,6 +26,16 @@ class SignalRService {
 
   onStateChange(callback: (state: ConnectionState) => void) {
     this.onStateChangeCallback = callback;
+  }
+
+  onMessage(command: string, handler: MessageHandler) {
+    this.messageHandlers.set(command, handler);
+    logger.debug('SignalR', `Registered handler for command: ${command}`);
+  }
+
+  removeMessageHandler(command: string) {
+    this.messageHandlers.delete(command);
+    logger.debug('SignalR', `Removed handler for command: ${command}`);
   }
 
   private notifyStateChange(state: ConnectionState) {
@@ -75,11 +88,46 @@ class SignalRService {
 
       this.connection.on('ReceiveMessage', (message: string) => {
         logger.debug('SignalR', 'Received message', { message });
+
+        let parsed: any = null;
         try {
-          const parsed = JSON.parse(message);
+          parsed = JSON.parse(message);
           logger.debug('SignalR', 'Parsed message', parsed);
         } catch (e) {
           logger.debug('SignalR', 'Message is not JSON', { raw: message });
+        }
+
+        if (parsed && typeof parsed === 'object') {
+          const command = parsed.type || parsed.command;
+          if (command && this.messageHandlers.has(command)) {
+            const handler = this.messageHandlers.get(command);
+            if (handler) {
+              try {
+                handler(message, parsed);
+              } catch (error) {
+                logger.error(
+                  'SignalR',
+                  `Error in message handler for ${command}`,
+                  error
+                );
+              }
+            }
+          }
+        }
+
+        if (this.messageHandlers.has('*')) {
+          const defaultHandler = this.messageHandlers.get('*');
+          if (defaultHandler) {
+            try {
+              defaultHandler(message, parsed);
+            } catch (error) {
+              logger.error(
+                'SignalR',
+                'Error in default message handler',
+                error
+              );
+            }
+          }
         }
       });
 

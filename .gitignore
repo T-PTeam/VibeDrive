@@ -96,6 +96,13 @@ infrastructure/.env
 infrastructure/.env.*
 infrastructure/*.log
 
+# Node / JS
+node_modules/
+**/node_modules/
+
+# Local build outputs
+.build/
+
 # General
 *.log
 *.tmp
