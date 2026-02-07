@@ -10,11 +10,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import * as Speech from 'expo-speech';
-import {
-  Audio,
-  InterruptionModeIOS,
-  InterruptionModeAndroid,
-} from 'expo-av';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { RootStackParamList } from '../../App';
 
 const SPEAKER_AUDIO_MODE = {
@@ -39,7 +35,7 @@ async function activateLoudspeakerThenSpeak(
     });
     silentSound = sound;
     await sound.playAsync();
-  } catch (_) { }
+  } catch (_) {}
   Speech.speak(text, {
     language: 'en-US',
     pitch: 1.05,
@@ -315,11 +311,7 @@ export default function DriveScreen({ navigation, route }: Props) {
             disabled={ledConnecting}
           >
             <Text style={styles.headerButtonText}>
-              {ledConnecting
-                ? '...'
-                : ledConnected
-                  ? 'LED ✓'
-                  : 'Connect LED'}
+              {ledConnecting ? '...' : ledConnected ? 'LED ✓' : 'Connect LED'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
