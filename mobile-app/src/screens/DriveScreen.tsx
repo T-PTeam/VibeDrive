@@ -78,8 +78,8 @@ interface Props {
   route: DriveScreenRouteProp;
 }
 
-const LED_SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
-const LED_CHARACTERISTIC_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+const LED_SERVICE_UUID = '00001111-0000-1000-8000-00805f9b34fb';
+const LED_CHARACTERISTIC_UUID = '00002222-0000-1000-8000-00805f9b34fb';
 const LED_DEVICE_NAME = 'VibeDrive Controller';
 
 export default function DriveScreen({ navigation, route }: Props) {

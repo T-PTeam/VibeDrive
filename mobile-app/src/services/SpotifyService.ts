@@ -43,9 +43,9 @@ class SpotifyService {
   async authenticate(): Promise<boolean> {
     try {
       if (!this.clientId) {
-        Alert.alert(
-          'Spotify',
-          'Spotify client id is missing. Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID.'
+        logger.warn(
+          'SpotifyService',
+          'Spotify client ID not configured - authentication skipped'
         );
         return false;
       }
@@ -106,6 +106,14 @@ class SpotifyService {
 
   async playTrack(track: SpotifyTrack): Promise<boolean> {
     try {
+      if (!this.clientId) {
+        logger.warn(
+          'SpotifyService',
+          'Spotify not configured - skipping playback'
+        );
+        return false;
+      }
+
       const accessToken = await this.getValidAccessToken();
       if (!accessToken) {
         const didAuth = await this.authenticateWithPrompt();
@@ -180,6 +188,28 @@ class SpotifyService {
           'Invalid play_music command format',
           command
         );
+        return false;
+      }
+
+      if (!this.clientId) {
+        logger.info(
+          'SpotifyService',
+          'Spotify not configured - opening search instead'
+        );
+        if (track.query) {
+          await this.openSpotifyApp(
+            `spotify:search:${encodeURIComponent(track.query)}`
+          );
+          return true;
+        }
+        if (track.uri) {
+          await this.openSpotifyApp(track.uri);
+          return true;
+        }
+        if (track.trackId) {
+          await this.openSpotifyApp(`spotify:track:${track.trackId}`);
+          return true;
+        }
         return false;
       }
 
@@ -500,7 +530,18 @@ class SpotifyService {
 
   private async openSpotifyApp(uri: string): Promise<void> {
     try {
+      logger.info('SpotifyService', 'Opening Spotify', { uri });
+      const canOpen = await Linking.canOpenURL(uri);
+      if (!canOpen) {
+        logger.warn(
+          'SpotifyService',
+          'Cannot open Spotify URI, trying web fallback',
+          { uri }
+        );
+        throw new Error('Cannot open Spotify URI');
+      }
       await Linking.openURL(uri);
+      logger.info('SpotifyService', 'Successfully opened Spotify');
     } catch (error) {
       logger.warn('SpotifyService', 'Failed to open Spotify app', error);
 
