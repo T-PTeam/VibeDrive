@@ -10,23 +10,24 @@ RUN apk add --no-cache \
     oniguruma-dev \
     postgresql-dev \
     mysql-client \
-    && docker-php-ext-install pdo_mysql pdo_pgsql mbstring exif pcntl bcmath gd zip
+    linux-headers # Додано для стабільної роботи деяких розширень
 
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+RUN docker-php-ext-install pdo_mysql pdo_pgsql mbstring exif pcntl bcmath gd zip
+
+COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 
 WORKDIR /var/www/html
 
+COPY composer.json composer.lock ./
+
+RUN composer install --no-dev --no-scripts --no-autoloader
+
 COPY . .
 
-RUN if [ -f "composer.json" ]; then \
-    composer install --no-dev --optimize-autoloader --no-interaction; \
-    fi
-
-RUN chown -R www-data:www-data /var/www/html \
-    && ( [ -d "/var/www/html/storage" ] && chmod -R 755 /var/www/html/storage || true ) \
-    && ( [ -d "/var/www/html/bootstrap/cache" ] && chmod -R 755 /var/www/html/bootstrap/cache || true )
+RUN composer dump-autoload --optimize \
+    && chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
+    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 EXPOSE 9000
 
 CMD ["php-fpm"]
-

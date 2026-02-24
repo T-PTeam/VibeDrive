@@ -3,9 +3,14 @@
   "version": "1.0.0",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "start": "REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0 expo start --go",
+    "start:lan": "REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0 expo start --go",
+    "start:expogo": "expo start --go",
+    "start:dev": "expo start",
+    "clear-cache": "rm -rf .expo node_modules/.cache",
+    "start:clean": "npm run clear-cache && REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0 expo start --go",
+    "android": "expo start --go --android",
+    "ios": "expo start --go --ios",
     "web": "expo start --web",
     "prettier:fix": "prettier --write \"**/*.{ts,tsx,js,jsx,json}\""
   },
@@ -13,7 +18,7 @@
     "@microsoft/signalr": "^8.0.0",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/native-stack": "^6.9.17",
-    "expo": "~54.0.0",
+    "expo": "~54.0.33",
     "expo-auth-session": "~7.0.10",
     "expo-av": "^16.0.8",
     "expo-dev-client": "~6.0.20",
@@ -30,9 +35,11 @@
     "redis": "^5.10.0"
   },
   "devDependencies": {
+    "@expo/ngrok": "^4.1.0",
     "@babel/core": "^7.25.0",
     "@types/node": "^25.0.3",
     "@types/react": "~19.1.10",
+    "babel-preset-expo": "^54.0.10",
     "prettier": "^3.2.5",
     "typescript": "~5.9.2"
   },

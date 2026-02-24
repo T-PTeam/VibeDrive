@@ -33,7 +33,8 @@ export default function DriveScreen({ navigation, route }: Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const userId = route.params?.userId || 'driver123';
+  const userId = route.params?.userId ?? 'driver123';
+  const userName = route.params?.userName;
 
   useEffect(() => {
     const connectSignalR = async () => {
@@ -218,6 +219,9 @@ export default function DriveScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
+        {userName ? (
+          <Text style={styles.userLabel}>Logged in as {userName}</Text>
+        ) : null}
         <TouchableOpacity
           style={[
             styles.microphoneButton,
@@ -257,6 +261,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  userLabel: {
+    position: 'absolute',
+    top: 24,
+    fontSize: 14,
+    color: '#888888',
   },
   microphoneButton: {
     width: 120,
