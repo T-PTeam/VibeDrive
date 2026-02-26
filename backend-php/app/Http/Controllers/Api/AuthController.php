@@ -31,6 +31,8 @@ class AuthController extends Controller
             ], 422)->header('Content-Type', 'application/json');
         }
 
+        $token = $user->createToken('api-login')->plainTextToken;
+
         return response()->json([
             'status' => 'success',
             'message' => 'Logged in successfully',
@@ -38,6 +40,7 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'token' => $token,
             ],
         ], 200)->header('Content-Type', 'application/json');
     }
