@@ -76,14 +76,15 @@ class ChatController extends Controller
 
         $this->publishDriverUpdate($user->id, $response->content, 'chat_response');
 
-        return response()->json([
-            'status' => 'success',
-            'data' => [
-                'session_id' => $session->id,
-                'user_message' => ['id' => $userMessage->id, 'content' => $userMessage->content],
-                'assistant_message' => ['id' => $assistantMessage->id, 'content' => $assistantMessage->content],
-            ],
-        ], 200);
+        $data = [
+            'session_id' => $session->id,
+            'user_message' => ['id' => $userMessage->id, 'content' => $userMessage->content],
+            'assistant_message' => ['id' => $assistantMessage->id, 'content' => $assistantMessage->content],
+        ];
+        if ($response->toolCalls !== null) {
+            $data['tool_calls'] = $response->toolCalls;
+        }
+        return response()->json(['status' => 'success', 'data' => $data], 200);
     }
 
     private function resolveSession(Request $request, int $userId, ?int $sessionId): ?ChatSession

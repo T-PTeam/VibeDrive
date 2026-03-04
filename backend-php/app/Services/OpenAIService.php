@@ -74,17 +74,42 @@ class OpenAIService
             }
             $messages[] = ['role' => 'user', 'content' => $prompt];
 
-            $response = $client->chat()->create([
+            $params = [
                 'model' => self::MODEL,
                 'messages' => $messages,
-            ]);
+            ];
+            $tools = $this->getAvailableTools();
+            if (!empty($tools)) {
+                $params['tools'] = $tools;
+                $params['tool_choice'] = 'auto';
+            }
 
-            $content = $response->choices[0]->message->content ?? null;
-            if ($content === null || $content === '') {
+            $response = $client->chat()->create($params);
+
+            $message = $response->choices[0]->message ?? null;
+            $content = $message->content ?? null;
+            $toolCalls = null;
+            if (isset($message->toolCalls) && is_array($message->toolCalls)) {
+                $toolCalls = [];
+                foreach ($message->toolCalls as $tc) {
+                    $fn = $tc->function ?? null;
+                    $toolCalls[] = [
+                        'id' => $tc->id ?? null,
+                        'name' => $fn->name ?? null,
+                        'arguments' => $fn && isset($fn->arguments) ? (json_decode($fn->arguments, true) ?? []) : [],
+                    ];
+                }
+            }
+
+            if (($content === null || $content === '') && empty($toolCalls)) {
                 return OpenAIResponse::error('Empty response from OpenAI.');
             }
 
-            return OpenAIResponse::success($content);
+            if ($content === null || $content === '') {
+                $content = 'Done.';
+            }
+
+            return OpenAIResponse::success($content, 200, !empty($toolCalls) ? $toolCalls : null);
         } catch (ErrorException $e) {
             return OpenAIResponse::error(
                 'OpenAI API error: ' . $e->getMessage(),
@@ -103,6 +128,11 @@ class OpenAIService
                 500
             );
         }
+    }
+
+    public function getAvailableTools(): array
+    {
+        return config('openai-tools.tools', []);
     }
 
     public static function fromConfig(): self
