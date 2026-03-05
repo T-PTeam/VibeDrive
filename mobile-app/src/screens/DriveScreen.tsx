@@ -10,11 +10,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import * as Speech from 'expo-speech';
-import {
-  Audio,
-  InterruptionModeIOS,
-  InterruptionModeAndroid,
-} from 'expo-av';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { RootStackParamList } from '../../App';
 
 const SPEAKER_AUDIO_MODE = {
@@ -39,7 +35,7 @@ async function activateLoudspeakerThenSpeak(
     });
     silentSound = sound;
     await sound.playAsync();
-  } catch (_) { }
+  } catch (_) {}
   Speech.speak(text, {
     language: 'en-US',
     pitch: 1.05,
@@ -92,6 +88,7 @@ export default function DriveScreen({ navigation, route }: Props) {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [ledConnecting, setLedConnecting] = useState(false);
   const [ledConnected, setLedConnected] = useState(false);
+  const [spotifyTesting, setSpotifyTesting] = useState(false);
   const userId = route.params?.userId || 'driver123';
 
   useEffect(() => {
@@ -305,6 +302,34 @@ export default function DriveScreen({ navigation, route }: Props) {
     setLedConnected(false);
   };
 
+  const handleTestSpotify = async () => {
+    const spotifyClientId = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID || '';
+    if (!spotifyClientId) {
+      Alert.alert(
+        'Spotify',
+        'Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID in .env and restart the app.'
+      );
+      return;
+    }
+    setSpotifyTesting(true);
+    try {
+      const success = await spotifyService.playMusic({ query: 'music' });
+      if (success) {
+        Alert.alert('Music', 'Playing on Spotify');
+      } else {
+        Alert.alert(
+          'Spotify',
+          'Play failed. Check: 1) Redirect URI in Spotify Dashboard 2) Spotify app open or Premium account.'
+        );
+      }
+    } catch (error) {
+      logger.error('DriveScreen', 'Test Spotify error', error);
+      Alert.alert('Spotify', 'Error: ' + String(error));
+    } finally {
+      setSpotifyTesting(false);
+    }
+  };
+
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
@@ -315,11 +340,16 @@ export default function DriveScreen({ navigation, route }: Props) {
             disabled={ledConnecting}
           >
             <Text style={styles.headerButtonText}>
-              {ledConnecting
-                ? '...'
-                : ledConnected
-                  ? 'LED ✓'
-                  : 'Connect LED'}
+              {ledConnecting ? '...' : ledConnected ? 'LED ✓' : 'Connect LED'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={handleTestSpotify}
+            disabled={spotifyTesting}
+          >
+            <Text style={styles.headerButtonText}>
+              {spotifyTesting ? '...' : 'Test Spotify'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -339,7 +369,7 @@ export default function DriveScreen({ navigation, route }: Props) {
         </View>
       ),
     });
-  }, [navigation, ledConnected, ledConnecting]);
+  }, [navigation, ledConnected, ledConnecting, spotifyTesting]);
 
   return (
     <View style={styles.container}>

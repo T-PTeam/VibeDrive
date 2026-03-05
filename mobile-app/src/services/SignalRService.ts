@@ -162,8 +162,7 @@ class SignalRService {
     } catch (error: any) {
       this.notifyStateChange('Disconnected');
       const message =
-        error?.message ||
-        (typeof error === 'string' ? error : 'Unknown error');
+        error?.message || (typeof error === 'string' ? error : 'Unknown error');
       logger.error('SignalR', 'Connection failed', error, {
         baseUrl: this.baseUrl,
         userId: this.userId,
