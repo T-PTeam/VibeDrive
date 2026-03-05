@@ -55,7 +55,7 @@ class LEDController {
         return await this.connectByName(config.deviceName);
       }
 
-      throw new Error('No device ID or name provided');
+      return await this.connectByServiceUUID();
     } catch (error) {
       logger.error('LEDController', 'Failed to connect', error);
       return false;
@@ -66,32 +66,92 @@ class LEDController {
     return new Promise((resolve) => {
       let foundDevice = false;
 
-      bleService.startScanning(
-        async (device) => {
-          if (device.name === deviceName && !foundDevice) {
-            foundDevice = true;
-            bleService.stopScanning();
-
-            try {
-              await bleService.connect(device.id);
-              resolve(true);
-            } catch (error) {
-              logger.error(
-                'LEDController',
-                'Failed to connect to found device',
-                error
-              );
-              resolve(false);
-            }
-          }
-        },
-        [this.config!.serviceUUID]
+      logger.info(
+        'LEDController',
+        'Scanning for device by name (no UUID filter)',
+        {
+          deviceName,
+        }
       );
+
+      bleService.startScanning(async (device) => {
+        logger.debug('LEDController', 'Device found during scan', {
+          name: device.name,
+          id: device.id,
+        });
+
+        if (device.name === deviceName && !foundDevice) {
+          foundDevice = true;
+          bleService.stopScanning();
+
+          logger.info('LEDController', 'Matching device found, connecting', {
+            name: device.name,
+            id: device.id,
+          });
+
+          try {
+            await bleService.connect(device.id);
+            resolve(true);
+          } catch (error) {
+            logger.error(
+              'LEDController',
+              'Failed to connect to found device',
+              error
+            );
+            resolve(false);
+          }
+        }
+      }, undefined);
 
       setTimeout(() => {
         if (!foundDevice) {
           bleService.stopScanning();
           logger.warn('LEDController', 'Device not found', { deviceName });
+          resolve(false);
+        }
+      }, 10000);
+    });
+  }
+
+  private async connectByServiceUUID(): Promise<boolean> {
+    return new Promise((resolve) => {
+      let foundDevice = false;
+
+      logger.info('LEDController', 'Scanning for first available BLE device');
+
+      bleService.startScanning(async (device) => {
+        logger.debug('LEDController', 'Device found during scan', {
+          name: device.name,
+          id: device.id,
+        });
+
+        if (!foundDevice) {
+          foundDevice = true;
+          bleService.stopScanning();
+
+          logger.info('LEDController', 'Connecting to first device found', {
+            id: device.id,
+            name: device.name,
+          });
+
+          try {
+            await bleService.connect(device.id);
+            resolve(true);
+          } catch (error) {
+            logger.error(
+              'LEDController',
+              'Failed to connect to found device',
+              error
+            );
+            resolve(false);
+          }
+        }
+      }, undefined);
+
+      setTimeout(() => {
+        if (!foundDevice) {
+          bleService.stopScanning();
+          logger.warn('LEDController', 'No BLE devices found');
           resolve(false);
         }
       }, 10000);
