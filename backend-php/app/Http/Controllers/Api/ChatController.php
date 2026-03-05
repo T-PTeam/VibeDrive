@@ -64,7 +64,10 @@ class ChatController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => $response->error,
-                'data' => ['user_message_id' => $userMessage->id],
+                'data' => [
+                    'session_id' => $session->id,
+                    'user_message_id' => $userMessage->id,
+                ],
             ], $response->statusCode);
         }
 
@@ -121,6 +124,7 @@ class ChatController extends Controller
             'userId' => (string) $targetUserId,
             'type' => 'chat_response',
             'data' => [
+                'type' => 'ai_response',
                 'targetUserId' => $targetUserId,
                 'message' => $message,
                 'action' => $action,

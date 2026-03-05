@@ -8,9 +8,11 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { getPhpApiUrl } from '../config/api';
+import { PHP_API_TOKEN_KEY } from '../constants/auth';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -80,18 +82,35 @@ export default function LoginScreen({ navigation }: Props) {
       });
       clearTimeout(timeoutId);
 
-      const data = await response.json();
+      const raw = await response.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        const preview = raw.slice(0, 80).replace(/\s+/g, ' ');
+        Alert.alert(
+          'Server error',
+          `Backend returned non-JSON (likely an error page). Check Laravel logs.\n\nStatus: ${response.status}\nPreview: ${preview}${raw.length > 80 ? '…' : ''}`
+        );
+        return;
+      }
 
       if (!response.ok) {
         const message =
-          data?.message ?? data?.errors?.login?.[0] ?? 'Login failed';
+          (data?.message as string) ??
+          (data?.errors as Record<string, string[]>)?.login?.[0] ??
+          'Login failed';
         Alert.alert('Login failed', message);
         return;
       }
 
       if (data?.status === 'success' && data?.data) {
+        const payload = data.data as { name?: string; token?: string };
         const userId = username.trim();
-        const userName = data.data.name ?? username.trim();
+        const userName = payload?.name ?? username.trim();
+        if (payload?.token) {
+          await SecureStore.setItemAsync(PHP_API_TOKEN_KEY, payload.token);
+        }
         navigation.replace('Drive', { userId, userName });
       } else {
         Alert.alert('Login failed', 'Invalid response from server');

@@ -148,7 +148,10 @@ class SignalRService {
       this.connection.onclose((error) => {
         this.notifyStateChange('Disconnected');
         if (error) {
-          logger.error('SignalR', 'Connection closed with error', error);
+          logger.error('SignalR', 'Connection closed with error', {
+            message: error?.message,
+            name: error?.name,
+          });
         } else {
           logger.info('SignalR', 'Connection closed');
         }
@@ -156,14 +159,13 @@ class SignalRService {
 
       await this.connection.start();
       this.notifyStateChange('Connected');
-      logger.info('SignalR', 'Connected successfully', {
-        connectionId: this.connection.connectionId,
-      });
+      const connectionId = this.connection?.connectionId ?? undefined;
+      logger.info('SignalR', 'Connected successfully', { connectionId });
     } catch (error: any) {
       this.notifyStateChange('Disconnected');
       const message =
         error?.message || (typeof error === 'string' ? error : 'Unknown error');
-      logger.error('SignalR', 'Connection failed', error, {
+      logger.error('SignalR', 'Connection failed', {
         baseUrl: this.baseUrl,
         userId: this.userId,
         message,
