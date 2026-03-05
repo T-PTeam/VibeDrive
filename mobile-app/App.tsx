@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as WebBrowser from 'expo-web-browser';
 import LoginScreen from './src/screens/LoginScreen';
 import DriveScreen from './src/screens/DriveScreen';
 import SubscriptionPricesScreen from './src/screens/SubscriptionPricesScreen';
@@ -10,7 +9,14 @@ import { signalRService } from './src/services/SignalRService';
 import { getApiUrl } from './src/config/api';
 import { logger } from './src/services/LoggerService';
 
-WebBrowser.maybeCompleteAuthSession();
+try {
+  const WebBrowser = require('expo-web-browser');
+  if (WebBrowser?.maybeCompleteAuthSession) {
+    WebBrowser.maybeCompleteAuthSession();
+  }
+} catch (error) {
+  logger.warn('App', 'expo-web-browser not available (Expo Go limitation)');
+}
 
 export type RootStackParamList = {
   Login: undefined;
