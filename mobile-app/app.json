@@ -14,6 +14,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vibedrive.mobile",
       "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "VibeDrive uses your location to send position to the driver API for load matching.",
         "NSMicrophoneUsageDescription": "VibeDrive needs access to your microphone to record voice commands while driving.",
         "NSBluetoothAlwaysUsageDescription": "VibeDrive needs Bluetooth access to connect to LED controllers and other BLE devices.",
         "NSBluetoothPeripheralUsageDescription": "VibeDrive needs Bluetooth access to connect to LED controllers and other BLE devices.",
@@ -43,6 +44,15 @@
         "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"
       }
     },
-    "plugins": ["expo-secure-store"]
+    "plugins": [
+      "expo-secure-store",
+      "expo-location",
+      [
+        "expo-notifications",
+        {
+          "sounds": []
+        }
+      ]
+    ]
   }
 }

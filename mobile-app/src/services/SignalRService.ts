@@ -156,14 +156,21 @@ class SignalRService {
 
       await this.connection.start();
       this.notifyStateChange('Connected');
+      let connectionId: string | null = null;
+      try {
+        connectionId = this.connection?.connectionId ?? null;
+      } catch {
+        connectionId = null;
+      }
       logger.info('SignalR', 'Connected successfully', {
-        connectionId: this.connection.connectionId,
+        connectionId: connectionId ?? 'unknown',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.notifyStateChange('Disconnected');
+      const err = error as { message?: string };
       const message =
-        error?.message || (typeof error === 'string' ? error : 'Unknown error');
-      logger.error('SignalR', 'Connection failed', error, {
+        err?.message ?? (typeof error === 'string' ? error : 'Unknown error');
+      logger.error('SignalR', 'Connection failed', {
         baseUrl: this.baseUrl,
         userId: this.userId,
         message,

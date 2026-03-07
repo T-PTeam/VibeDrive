@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -12,6 +13,7 @@ import { RouteProp } from '@react-navigation/native';
 import * as Speech from 'expo-speech';
 import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { RootStackParamList } from '../../App';
+import { getPhpApiUrl } from '../config/api';
 
 const SPEAKER_AUDIO_MODE = {
   allowsRecordingIOS: false,
@@ -65,6 +67,10 @@ import { audioRecordingService } from '../services/AudioRecordingService';
 import { redisService } from '../services/RedisService';
 import { spotifyService } from '../services/SpotifyService';
 import { ledController } from '../services/LEDController';
+import LoadOfferCard, { LoadOfferPayload } from '../components/LoadOfferCard';
+import { loadsService } from '../services/LoadsService';
+import { locationService } from '../services/LocationService';
+import type { ActiveRouteDto } from '../types/loads';
 
 type DriveScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -89,7 +95,26 @@ export default function DriveScreen({ navigation, route }: Props) {
   const [ledConnecting, setLedConnecting] = useState(false);
   const [ledConnected, setLedConnected] = useState(false);
   const [spotifyTesting, setSpotifyTesting] = useState(false);
+  const [loadOffer, setLoadOffer] = useState<LoadOfferPayload | null>(null);
+  const [activeRoute, setActiveRoute] = useState<ActiveRouteDto | null>(null);
   const userId = route.params?.userId || 'driver123';
+
+  const fetchActiveRoute = useCallback(async () => {
+    const route = await loadsService.getActiveRoute(userId);
+    setActiveRoute(route);
+  }, [userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchActiveRoute();
+      const phpUrl = getPhpApiUrl();
+      locationService.setBaseUrl(phpUrl);
+      locationService.requestPermissions().then((granted) => {
+        if (granted) locationService.startWatching(userId);
+      });
+      return () => locationService.stopWatching();
+    }, [fetchActiveRoute, userId])
+  );
 
   useEffect(() => {
     const connectSignalR = async () => {
@@ -189,6 +214,61 @@ export default function DriveScreen({ navigation, route }: Props) {
           await ledController.setColor(color);
         }
       });
+
+      signalRService.onMessage('LoadOffer', (_message, parsed) => {
+        const raw = parsed?.payload ?? parsed;
+        if (!raw || typeof raw !== 'object') return;
+        const p = raw as Record<string, unknown>;
+        const payload: LoadOfferPayload = {
+          id: String(p.id ?? p.load_id ?? ''),
+          origin: String(p.origin ?? p.origin_city ?? ''),
+          destination: String(
+            p.destination ?? p.dest_city ?? p.destination_city ?? ''
+          ),
+          rate:
+            typeof p.rate === 'number'
+              ? p.rate
+              : Number(p.rate) || String(p.rate ?? ''),
+          currency: p.currency != null ? String(p.currency) : undefined,
+          weightKg:
+            p.weightKg != null
+              ? Number(p.weightKg)
+              : p.weight_kg != null
+                ? Number(p.weight_kg)
+                : undefined,
+          volumeM3:
+            p.volumeM3 != null
+              ? Number(p.volumeM3)
+              : p.volume_m3 != null
+                ? Number(p.volume_m3)
+                : undefined,
+          distanceKm:
+            p.distanceKm != null
+              ? Number(p.distanceKm)
+              : p.distance_km != null
+                ? Number(p.distance_km)
+                : undefined,
+          source: p.source != null ? String(p.source) : undefined,
+        };
+        if (payload.id && payload.origin && payload.destination) {
+          setLoadOffer(payload);
+          const rateStr =
+            typeof payload.rate === 'number'
+              ? payload.rate.toLocaleString()
+              : String(payload.rate);
+          const phrase = `New load offer: ${payload.origin} to ${payload.destination}, ${payload.currency ?? 'USD'} ${rateStr}`;
+          Speech.stop();
+          Speech.speak(phrase, {
+            language: 'en-US',
+            pitch: 1.05,
+            rate: 0.92,
+            volume: 1.0,
+          });
+          if (ledController.isConnected()) {
+            ledController.pulse(ledController.getColorForTrigger('load_offer'));
+          }
+        }
+      });
     };
 
     connectSignalR();
@@ -198,6 +278,7 @@ export default function DriveScreen({ navigation, route }: Props) {
     return () => {
       signalRService.removeMessageHandler('play_music');
       signalRService.removeMessageHandler('ai_response');
+      signalRService.removeMessageHandler('LoadOffer');
       signalRService.disconnect();
       if (audioRecordingService.getIsRecording()) {
         audioRecordingService.cancelRecording();
@@ -273,6 +354,10 @@ export default function DriveScreen({ navigation, route }: Props) {
     navigation.navigate('SubscriptionPrices');
   };
 
+  const handleRouteSetup = () => {
+    navigation.navigate('RouteSetup', { userId });
+  };
+
   const handleConnectLED = async () => {
     setLedConnecting(true);
     try {
@@ -340,23 +425,20 @@ export default function DriveScreen({ navigation, route }: Props) {
             disabled={ledConnecting}
           >
             <Text style={styles.headerButtonText}>
-              {ledConnecting ? '...' : ledConnected ? 'LED ✓' : 'Connect LED'}
+              {ledConnecting ? '...' : ledConnected ? 'LED ✓' : 'LED'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={handleTestSpotify}
-            disabled={spotifyTesting}
+            onPress={handleRouteSetup}
           >
-            <Text style={styles.headerButtonText}>
-              {spotifyTesting ? '...' : 'Test Spotify'}
-            </Text>
+            <Text style={styles.headerButtonText}>Route</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={handleViewPrices}
           >
-            <Text style={styles.headerButtonText}>Plans</Text>
+            <Text style={styles.headerButtonText}>Subscription</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.headerButton, styles.logoutButton]}
@@ -371,9 +453,43 @@ export default function DriveScreen({ navigation, route }: Props) {
     });
   }, [navigation, ledConnected, ledConnecting, spotifyTesting]);
 
+  const handleLoadOfferAccept = async (id: string) => {
+    setLoadOffer(null);
+    try {
+      const newRoute = await loadsService.acceptLoad(userId, id);
+      if (newRoute) {
+        setActiveRoute(newRoute);
+        Alert.alert(
+          'Load accepted',
+          `Route is now ${newRoute.origin_city} to ${newRoute.dest_city}.`
+        );
+      } else {
+        Alert.alert('Error', 'Failed to accept load. Please try again.');
+      }
+    } catch (e) {
+      logger.error('DriveScreen', 'Accept load failed', e);
+      Alert.alert('Error', 'Failed to accept load. Please try again.');
+    }
+  };
+
+  const handleLoadOfferDismiss = (id: string) => {
+    setLoadOffer(null);
+  };
+
+  const handleLoadOfferClose = () => {
+    setLoadOffer(null);
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.content}>
+        {activeRoute ? (
+          <Text style={styles.routeText}>
+            Route: {activeRoute.origin_city} → {activeRoute.dest_city}
+          </Text>
+        ) : (
+          <Text style={styles.routeText}>No active route</Text>
+        )}
         <TouchableOpacity
           style={[
             styles.microphoneButton,
@@ -399,6 +515,13 @@ export default function DriveScreen({ navigation, route }: Props) {
           </View>
         )}
       </View>
+      <LoadOfferCard
+        visible={!!loadOffer}
+        load={loadOffer}
+        onAccept={handleLoadOfferAccept}
+        onDismiss={handleLoadOfferDismiss}
+        onClose={handleLoadOfferClose}
+      />
     </View>
   );
 }
@@ -430,6 +553,11 @@ const styles = StyleSheet.create({
   },
   microphoneIcon: {
     fontSize: 48,
+  },
+  routeText: {
+    fontSize: 14,
+    color: '#888888',
+    marginBottom: 16,
   },
   statusText: {
     marginTop: 24,

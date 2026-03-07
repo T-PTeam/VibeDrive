@@ -75,7 +75,8 @@ public class DriverController : ControllerBase
         try
         {
             var subscriber = _redis.GetSubscriber();
-            var result = await subscriber.PublishAsync(request.Channel, request.Message);
+            var channel = RedisChannel.Literal(request.Channel);
+            var result = await subscriber.PublishAsync(channel, request.Message);
             
             return Ok(ServerResponse<object>.Success(new { subscribers = result }, "Message published to Redis"));
         }

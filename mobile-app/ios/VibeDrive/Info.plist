@@ -64,6 +64,8 @@
     <string>VibeDrive needs Bluetooth access to connect to LED controllers and other BLE devices.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>VibeDrive uses your location to send position to the driver API for load matching.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>VibeDrive needs access to your microphone to record voice commands while driving.</string>
     <key>RCTNewArchEnabled</key>

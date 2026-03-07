@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 const DEV_API_URL =
-  process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.103:5009';
+  process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.104:5009';
 
 export const getApiUrl = (): string => {
   if (__DEV__) {
@@ -10,7 +10,7 @@ export const getApiUrl = (): string => {
     }
     return DEV_API_URL;
   }
-  return process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.103:5009';
+  return process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.104:5009';
 };
 
 export const API_CONFIG = {
@@ -21,7 +21,9 @@ export const API_CONFIG = {
 export const getPhpApiUrl = (): string => {
   if (__DEV__) {
     if (Platform.OS === 'android' || Platform.OS === 'ios') {
-      return process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.0.155/api';
+      return (
+        process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.1.104/api'
+      );
     }
     if (Platform.OS === 'web') {
       return 'http://localhost/api';

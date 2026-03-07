@@ -105,13 +105,19 @@ class RedisService {
         message: JSON.stringify(message),
       };
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000);
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       logger.debug('RedisService', 'API response received', {
         status: response.status,

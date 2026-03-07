@@ -235,14 +235,33 @@ class LEDController {
     return bleService.isConnected();
   }
 
-  getColorForTrigger(trigger: 'play_music' | 'ai_response'): RGBColor {
+  getColorForTrigger(
+    trigger: 'play_music' | 'ai_response' | 'load_offer'
+  ): RGBColor {
     switch (trigger) {
       case 'play_music':
         return { red: 0, green: 255, blue: 0 };
       case 'ai_response':
         return { red: 0, green: 0, blue: 255 };
+      case 'load_offer':
+        return { red: 255, green: 165, blue: 0 };
       default:
         return { red: 255, green: 255, blue: 255 };
+    }
+  }
+
+  async pulse(color: RGBColor, cycles = 3, cycleMs = 400): Promise<void> {
+    if (!bleService.isConnected()) return;
+    const dim = (c: RGBColor, scale: number): RGBColor => ({
+      red: Math.round(c.red * scale),
+      green: Math.round(c.green * scale),
+      blue: Math.round(c.blue * scale),
+    });
+    for (let i = 0; i < cycles; i++) {
+      await this.setColor(dim(color, 0.15));
+      await new Promise((r) => setTimeout(r, cycleMs / 2));
+      await this.setColor(color);
+      await new Promise((r) => setTimeout(r, cycleMs / 2));
     }
   }
 }

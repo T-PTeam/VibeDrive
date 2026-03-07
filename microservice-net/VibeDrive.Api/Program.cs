@@ -38,6 +38,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 
 builder.Services.AddSingleton<IConnectionManager, ConnectionManager>();
 
+builder.Services.AddSingleton<IRouteLoadsService, NoOpRouteLoadsService>();
+
 builder.Services.AddHttpClient();
 
 var openAIApiKey = builder.Configuration["OpenAI:ApiKey"] 

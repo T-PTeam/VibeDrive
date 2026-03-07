@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using VibeDrive.Api.Interfaces;
+using VibeDrive.Api.Models;
 
 namespace VibeDrive.Api.Services;
 
@@ -150,6 +151,98 @@ Always respond with valid JSON only, no other text.";
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process transcription - Transcription: {Transcription}", transcription);
+            return null;
+        }
+    }
+
+    public async Task<string?> ProcessTranscriptionWithContextAsync(string transcription, RouteLoadsContext context, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(_apiKey))
+        {
+            _logger.LogWarning("OpenAI API key is not configured. Skipping transcription processing.");
+            return null;
+        }
+
+        try
+        {
+            var contextLines = new List<string>();
+            if (context.ActiveRoute != null)
+            {
+                contextLines.Add($"Current route: {context.ActiveRoute.OriginCity} to {context.ActiveRoute.DestCity}. Capacity: {context.ActiveRoute.WeightKg} kg, {context.ActiveRoute.VolumeM3} m³.");
+            }
+            else
+            {
+                contextLines.Add("Current route: None set.");
+            }
+
+            if (context.ProposedLoads.Count > 0)
+            {
+                var loadLines = context.ProposedLoads.Select((l, i) => $"{i + 1}. {l.OriginCity} to {l.DestCity}, {l.Currency} {l.RateAmount}.").ToList();
+                contextLines.Add("Proposed loads: " + string.Join(" ", loadLines));
+            }
+            else
+            {
+                contextLines.Add("Proposed loads: None.");
+            }
+
+            var contextBlock = string.Join("\n", contextLines);
+
+            var systemPrompt = $@"You are a voice command processor for a driving app. Use this context:
+{contextBlock}
+
+Analyze the user's voice transcription and determine if they want to:
+1. Play music on Spotify - respond with JSON: {{""action"":""play_music"",""query"":""song, artist, genre, or playlist request""}}
+2. Get a response/answer - respond with JSON: {{""action"":""respond"",""query"":""the question or request""}}
+3. List loads or route - if they ask ""what are my loads"", ""read the loads"", ""what options"", ""list loads"" -> {{""action"":""list_loads""}}. If they ask ""what's my route"", ""current route"" -> {{""action"":""list_route""}}
+4. Accept a load by number - if they say ""accept 2"", ""number 2"", ""the second one"", ""take option 2"" -> {{""action"":""accept_load"",""index"":2}}. Use the 1-based index from the proposed loads list.
+5. Other commands - respond with JSON: {{""action"":""other"",""query"":""original text""}}
+
+Always respond with valid JSON only, no other text. For accept_load always include ""index"" as the 1-based number (1, 2, 3...).";
+
+            var requestBody = new
+            {
+                model = "gpt-4o-mini",
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = transcription }
+                },
+                temperature = 0.3,
+                max_tokens = 150
+            };
+
+            var jsonContent = JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+            _httpClient.DefaultRequestHeaders.Clear();
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+
+            var response = await _httpClient.PostAsync(ChatUrl, content, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("OpenAI Chat API returned error - Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+                return null;
+            }
+
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var responseJson = JsonDocument.Parse(responseContent);
+
+            if (!responseJson.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+            {
+                _logger.LogWarning("OpenAI Chat API response missing choices. Response: {Response}", responseContent);
+                return null;
+            }
+
+            var message = choices[0].GetProperty("message").GetProperty("content").GetString();
+            _logger.LogInformation("Transcription processed with context - Transcription: {Transcription}, Command: {Command}", transcription, message);
+
+            return message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process transcription with context - Transcription: {Transcription}", transcription);
             return null;
         }
     }

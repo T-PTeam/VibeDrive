@@ -14,6 +14,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
     private readonly IHubContext<DriverHub> _hubContext;
     private readonly ILogger<RedisListenerService> _logger;
     private readonly IOpenAIService? _openAIService;
+    private readonly IRouteLoadsService _routeLoadsService;
     private ISubscriber? _subscriber;
     private const int MaxRetryDelay = 30000;
     private const int InitialRetryDelay = 1000;
@@ -22,11 +23,13 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
         IConnectionMultiplexer redis,
         IHubContext<DriverHub> hubContext,
         ILogger<RedisListenerService> logger,
+        IRouteLoadsService routeLoadsService,
         IOpenAIService? openAIService = null)
     {
         _redis = redis;
         _hubContext = hubContext;
         _logger = logger;
+        _routeLoadsService = routeLoadsService;
         _openAIService = openAIService;
     }
 
@@ -295,7 +298,13 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
 
         try
         {
-            var commandJson = await _openAIService.ProcessTranscriptionAsync(transcription, cancellationToken);
+            var context = await _routeLoadsService.GetContextAsync(userId, cancellationToken);
+            string? commandJson = await _openAIService.ProcessTranscriptionWithContextAsync(transcription, context, cancellationToken);
+
+            if (string.IsNullOrEmpty(commandJson))
+            {
+                commandJson = await _openAIService.ProcessTranscriptionAsync(transcription, cancellationToken);
+            }
 
             if (string.IsNullOrEmpty(commandJson))
             {
@@ -304,15 +313,18 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
             }
 
             var commandDoc = JsonDocument.Parse(commandJson);
-            var action = commandDoc.RootElement.TryGetProperty("action", out var actionElement) 
-                ? actionElement.GetString() 
+            var action = commandDoc.RootElement.TryGetProperty("action", out var actionElement)
+                ? actionElement.GetString()
                 : null;
-            var query = commandDoc.RootElement.TryGetProperty("query", out var queryElement) 
-                ? queryElement.GetString() 
+            var query = commandDoc.RootElement.TryGetProperty("query", out var queryElement)
+                ? queryElement.GetString()
                 : null;
+            var index = commandDoc.RootElement.TryGetProperty("index", out var indexElement) && indexElement.ValueKind == JsonValueKind.Number
+                ? indexElement.GetInt32()
+                : (int?)null;
 
-            _logger.LogInformation("Processed transcription command - UserId: {UserId}, Action: {Action}, Query: {Query}", 
-                userId, action, query);
+            _logger.LogInformation("Processed transcription command - UserId: {UserId}, Action: {Action}, Query: {Query}, Index: {Index}",
+                userId, action, query, index);
 
             var normalizedAction = action?.Trim().ToLowerInvariant();
             var normalizedQuery = query?.Trim();
@@ -321,6 +333,30 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
             if (string.IsNullOrWhiteSpace(normalizedQuery))
             {
                 normalizedQuery = normalizedTranscription;
+            }
+
+            if (normalizedAction == "list_loads")
+            {
+                await SendListLoadsTtsAsync(userId, context, cancellationToken);
+                return;
+            }
+            if (normalizedAction == "list_route")
+            {
+                await SendListRouteTtsAsync(userId, context, cancellationToken);
+                return;
+            }
+            if (normalizedAction == "accept_load" && index.HasValue && index.Value >= 1)
+            {
+                var newRoute = await _routeLoadsService.AcceptLoadByIndexAsync(userId, index.Value, cancellationToken);
+                if (newRoute != null)
+                {
+                    await SendTtsMessageAsync(userId, $"Accepted load {index}. Your route is now {newRoute.OriginCity} to {newRoute.DestCity}.", cancellationToken);
+                }
+                else
+                {
+                    await SendTtsMessageAsync(userId, "Could not find that load. Please try again.", cancellationToken);
+                }
+                return;
             }
 
             if (normalizedAction == "play_music" || IsMusicIntent(normalizedAction, normalizedQuery, normalizedTranscription))
@@ -336,6 +372,62 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
         {
             _logger.LogError(ex, "Failed to process transcription for user {UserId}", userId);
         }
+    }
+
+    private async Task SendTtsMessageAsync(string userId, string message, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var responseMessage = new
+            {
+                type = "ai_response",
+                data = new
+                {
+                    message,
+                    original_query = (string?)null
+                },
+                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            };
+            var messageJson = JsonSerializer.Serialize(responseMessage);
+            await _hubContext.Clients.Group(userId).SendAsync("ReceiveMessage", messageJson, cancellationToken);
+            _logger.LogInformation("Sent TTS message to user {UserId}", userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send TTS message to user {UserId}", userId);
+        }
+    }
+
+    private async Task SendListRouteTtsAsync(string userId, RouteLoadsContext context, CancellationToken cancellationToken)
+    {
+        if (context.ActiveRoute != null)
+        {
+            var msg = $"Your route is {context.ActiveRoute.OriginCity} to {context.ActiveRoute.DestCity}. Capacity {context.ActiveRoute.WeightKg} kg, {context.ActiveRoute.VolumeM3} cubic meters.";
+            await SendTtsMessageAsync(userId, msg, cancellationToken);
+        }
+        else
+        {
+            await SendTtsMessageAsync(userId, "You don't have an active route. Set one in Route Setup.", cancellationToken);
+        }
+    }
+
+    private async Task SendListLoadsTtsAsync(string userId, RouteLoadsContext context, CancellationToken cancellationToken)
+    {
+        var parts = new List<string>();
+        if (context.ActiveRoute != null)
+        {
+            parts.Add($"Your route is {context.ActiveRoute.OriginCity} to {context.ActiveRoute.DestCity}.");
+        }
+        if (context.ProposedLoads.Count > 0)
+        {
+            var list = string.Join(" ", context.ProposedLoads.Select((l, i) => $"{i + 1}. {l.OriginCity} to {l.DestCity}, {l.Currency} {l.RateAmount}."));
+            parts.Add("Proposed loads: " + list);
+        }
+        else
+        {
+            parts.Add("No proposed loads right now.");
+        }
+        await SendTtsMessageAsync(userId, string.Join(" ", parts), cancellationToken);
     }
 
     private static bool IsMusicIntent(string? action, string? query, string? transcription)
