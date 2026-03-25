@@ -89,9 +89,6 @@ export default function DriveScreen({ navigation, route }: Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const [ledConnecting, setLedConnecting] = useState(false);
-  const [ledConnected, setLedConnected] = useState(false);
-  const [spotifyTesting, setSpotifyTesting] = useState(false);
   const [chatSessionId, setChatSessionId] = useState<number | null>(null);
   const userId = route.params?.userId || 'driver123';
   const userName = route.params?.userName;
@@ -240,15 +237,92 @@ export default function DriveScreen({ navigation, route }: Props) {
           logger.info('DriveScreen', 'Recording stopped', result);
           const token = await SecureStore.getItemAsync(PHP_API_TOKEN_KEY);
           if (token) {
+            logger.info('DriveScreen', 'Sending audio to chat API', {
+              hasToken: true,
+              hasSessionId: chatSessionId != null,
+            });
             const chatResult = await apiService.sendAudioToChat(
               result.uri,
               token,
               chatSessionId
             );
+            logger.info('DriveScreen', 'Chat API result received', {
+              hasResult: chatResult != null,
+              sessionId: chatResult?.session_id ?? null,
+              hasData: chatResult?.data != null,
+              dataKeys: chatResult?.data ? Object.keys(chatResult.data) : [],
+            });
             if (chatResult) {
               setChatSessionId(chatResult.session_id);
+              const toolCalls = Array.isArray(chatResult.data?.tool_calls)
+                ? chatResult.data.tool_calls
+                : [];
+              const playMusicCall = toolCalls.find((toolCall) => {
+                if (!toolCall || typeof toolCall !== 'object') return false;
+                const name =
+                  typeof (toolCall as Record<string, unknown>).name === 'string'
+                    ? (toolCall as Record<string, unknown>).name
+                    : '';
+                return name === 'play_music';
+              }) as { arguments?: Record<string, unknown> } | undefined;
+              if (playMusicCall) {
+                const args =
+                  playMusicCall.arguments &&
+                  typeof playMusicCall.arguments === 'object'
+                    ? playMusicCall.arguments
+                    : {};
+                const success = await spotifyService.playMusic(args);
+                logger.info('DriveScreen', 'Handled play_music tool call', {
+                  success,
+                  args,
+                });
+                if (!success) {
+                  Alert.alert(
+                    'Spotify',
+                    'Could not start playback. Open Spotify and try again.'
+                  );
+                }
+              }
+              const assistantMessage = chatResult.data?.assistant_message as
+                | { content?: unknown }
+                | undefined;
+              const assistantText =
+                typeof assistantMessage?.content === 'string'
+                  ? assistantMessage.content
+                  : null;
+              if (assistantText) {
+                try {
+                  Speech.stop();
+                  await activateLoudspeakerThenSpeak(assistantText, () => {
+                    Alert.alert('AI Assistant', assistantText);
+                  });
+                  logger.info(
+                    'DriveScreen',
+                    'Spoke AI response from chat API',
+                    {
+                      message: assistantText,
+                    }
+                  );
+                } catch (error) {
+                  logger.error(
+                    'DriveScreen',
+                    'Failed to speak AI response from chat API',
+                    error
+                  );
+                  Alert.alert('AI Assistant', assistantText);
+                }
+              } else {
+                Alert.alert(
+                  'No AI response',
+                  'Request succeeded but assistant message was empty.'
+                );
+              }
             } else {
               setChatSessionId(null);
+              Alert.alert(
+                'No AI response',
+                'Chat request completed but returned no response payload.'
+              );
             }
           } else {
             const success = await redisService.publishAudioRecording(
@@ -298,85 +372,10 @@ export default function DriveScreen({ navigation, route }: Props) {
     navigation.navigate('SubscriptionPrices');
   };
 
-  const handleConnectLED = async () => {
-    setLedConnecting(true);
-    try {
-      const ok = await ledController.connect();
-      setLedConnected(ok);
-      if (ok) {
-        Alert.alert('LED', 'Connected to ' + LED_DEVICE_NAME);
-      } else {
-        Alert.alert(
-          'LED',
-          'Could not find "' +
-            LED_DEVICE_NAME +
-            '". Make sure the virtual peripheral is advertising and uses service UUID ' +
-            LED_SERVICE_UUID
-        );
-      }
-    } catch (e) {
-      setLedConnected(false);
-      Alert.alert('LED', 'Connect failed. Is Bluetooth on?');
-    } finally {
-      setLedConnecting(false);
-    }
-  };
-
-  const handleDisconnectLED = async () => {
-    await ledController.disconnect();
-    setLedConnected(false);
-  };
-
-  const handleTestSpotify = async () => {
-    const spotifyClientId = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID || '';
-    if (!spotifyClientId) {
-      Alert.alert(
-        'Spotify',
-        'Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID in .env and restart the app.'
-      );
-      return;
-    }
-    setSpotifyTesting(true);
-    try {
-      const success = await spotifyService.playMusic({ query: 'music' });
-      if (success) {
-        Alert.alert('Music', 'Playing on Spotify');
-      } else {
-        Alert.alert(
-          'Spotify',
-          'Play failed. Check: 1) Redirect URI in Spotify Dashboard 2) Spotify app open or Premium account.'
-        );
-      }
-    } catch (error) {
-      logger.error('DriveScreen', 'Test Spotify error', error);
-      Alert.alert('Spotify', 'Error: ' + String(error));
-    } finally {
-      setSpotifyTesting(false);
-    }
-  };
-
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerButtons}>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={ledConnected ? handleDisconnectLED : handleConnectLED}
-            disabled={ledConnecting}
-          >
-            <Text style={styles.headerButtonText}>
-              {ledConnecting ? '...' : ledConnected ? 'LED ✓' : 'Connect LED'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={handleTestSpotify}
-            disabled={spotifyTesting}
-          >
-            <Text style={styles.headerButtonText}>
-              {spotifyTesting ? '...' : 'Test Spotify'}
-            </Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={handleViewPrices}
@@ -394,7 +393,7 @@ export default function DriveScreen({ navigation, route }: Props) {
         </View>
       ),
     });
-  }, [navigation, ledConnected, ledConnecting, spotifyTesting]);
+  }, [navigation]);
 
   return (
     <View style={styles.container}>

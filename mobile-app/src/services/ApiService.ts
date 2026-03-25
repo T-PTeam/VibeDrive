@@ -101,7 +101,9 @@ class ApiService {
       try {
         data = raw ? JSON.parse(raw) : {};
       } catch {
-        logger.error('ApiService', 'Chat response not JSON', { raw: raw.slice(0, 100) });
+        logger.error('ApiService', 'Chat response not JSON', {
+          raw: raw.slice(0, 100),
+        });
         return null;
       }
       if (!response.ok) {
@@ -110,7 +112,10 @@ class ApiService {
           data,
         });
         const message = (data?.message as string) || '';
-        if (response.status === 429 || message.toLowerCase().includes('rate limit')) {
+        if (
+          response.status === 429 ||
+          message.toLowerCase().includes('rate limit')
+        ) {
           const rateLimitError = new Error(
             'OpenAI rate limit exceeded. Please try again in a few minutes.'
           );

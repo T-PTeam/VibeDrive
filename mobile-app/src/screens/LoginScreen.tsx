@@ -57,17 +57,18 @@ export default function LoginScreen({ navigation }: Props) {
       clearTimeout(pingTimeout);
       if (pingRes?.ok !== true) {
         setLoading(false);
-        const status = pingRes ? `HTTP ${pingRes.status}` : pingError ?? 'timeout/connection failed';
+        const status = pingRes
+          ? `HTTP ${pingRes.status}`
+          : (pingError ?? 'timeout/connection failed');
         const reason =
-          !pingRes && (pingError?.toLowerCase().includes('abort') || pingError?.toLowerCase().includes('timeout'))
+          !pingRes &&
+          (pingError?.toLowerCase().includes('abort') ||
+            pingError?.toLowerCase().includes('timeout'))
             ? 'Request timed out. Is anything listening on that URL?'
             : !pingRes
-              ? 'Connection refused or no response. Check: (1) Docker running? (2) Full stack: docker compose --profile full -f docker-compose.full.yml up -d (3) On a real device: set EXPO_PUBLIC_PHP_API_URL in .env to http://YOUR_MAC_IP:8080/api'
+              ? 'Connection refused or no response. Check: (1) Docker running? (2) Full stack: docker compose --profile full up -d in infrastructure (3) On a real device: use your Mac LAN IP in EXPO_PUBLIC_PHP_API_URL, e.g. http://YOUR_MAC_IP:8082/api'
               : `Server returned ${status}. Check Nginx and Laravel are up.`;
-        Alert.alert(
-          'Server unreachable',
-          `URL: ${loginUrl}\n\n${reason}`
-        );
+        Alert.alert('Server unreachable', `URL: ${loginUrl}\n\n${reason}`);
         return;
       }
 
@@ -119,8 +120,9 @@ export default function LoginScreen({ navigation }: Props) {
       clearTimeout(timeoutId);
       const isAbort = error?.name === 'AbortError';
       const message = isAbort
-        ? `Request timed out to ${loginUrl}. Same Wi‑Fi? Backend running? (docker compose --profile full up -d)`
-        : error?.message ?? 'Could not reach server. Check network and try again.';
+        ? `Request timed out to ${loginUrl}. Same Wi‑Fi? Backend on Mac? (infrastructure: docker compose --profile full up -d). PHP via nginx is host port 8082.`
+        : (error?.message ??
+          'Could not reach server. Check network and try again.');
       Alert.alert(isAbort ? 'Connection timeout' : 'Error', message);
     } finally {
       setLoading(false);

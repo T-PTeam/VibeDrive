@@ -26,7 +26,6 @@
         "backgroundColor": "#000000"
       },
       "package": "com.vibedrive.mobile",
-      "usesCleartextTraffic": true,
       "permissions": [
         "RECORD_AUDIO",
         "BLUETOOTH",
@@ -38,6 +37,7 @@
     },
     "web": {},
     "scheme": "vibedrive",
+    "privacyPolicyUrl": "https://vibe-drive.store/privacy",
     "extra": {
       "eas": {
         "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"

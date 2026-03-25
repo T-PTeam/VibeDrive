@@ -11,7 +11,9 @@
     "ios:simulator": "expo run:ios",
     "prebuild": "expo prebuild",
     "prebuild:clean": "expo prebuild --clean",
-    "prettier:fix": "prettier --write \"**/*.{ts,tsx,js,jsx,json}\""
+    "prettier:fix": "prettier --write \"**/*.{ts,tsx,js,jsx,json}\"",
+    "eas:build:ios": "eas build --platform ios --profile production",
+    "eas:submit:ios": "eas submit --platform ios --latest"
   },
   "dependencies": {
     "@microsoft/signalr": "^7.0.14",

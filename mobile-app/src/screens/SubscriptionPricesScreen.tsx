@@ -25,51 +25,51 @@ interface SubscriptionPlan {
   period: string;
   features: string[];
   popular?: boolean;
+  ctaLabel: string;
 }
 
 const plans: SubscriptionPlan[] = [
   {
-    id: 'basic',
-    name: 'Basic',
-    price: '$9.99',
-    period: 'per month',
+    id: 'free',
+    name: 'Free',
+    price: 'Free',
+    period: '',
     features: [
-      'Up to 10 hours of recording per month',
-      'Basic voice commands',
-      'Standard support',
+      'AI alerts for drowsiness and falling asleep (limited)',
+      'Limited voice sessions per month',
+      'Basic music voice commands',
     ],
+    ctaLabel: 'Continue with Free',
+  },
+  {
+    id: 'plus',
+    name: 'Plus',
+    price: '$3',
+    period: 'month',
+    features: [
+      'AI alerts for drowsiness and falling asleep',
+      'More voice sessions each month',
+      'Music and assistant voice commands',
+    ],
+    ctaLabel: 'Choose Plus',
   },
   {
     id: 'pro',
     name: 'Pro',
-    price: '$19.99',
-    period: 'per month',
+    price: '$5',
+    period: 'month',
     features: [
-      'Unlimited recording',
-      'Advanced voice commands',
-      'Priority support',
-      'Cloud storage (50GB)',
-      'Analytics dashboard',
+      'Everything in Plus',
+      'Cargo tracking',
+      'Directions and routing to your destination',
+      'Highest voice session allowance',
     ],
     popular: true,
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    price: '$49.99',
-    period: 'per month',
-    features: [
-      'Everything in Pro',
-      'Custom integrations',
-      'Dedicated support',
-      'Unlimited cloud storage',
-      'Team management',
-      'API access',
-    ],
+    ctaLabel: 'Choose Pro',
   },
 ];
 
-export default function SubscriptionPricesScreen({ navigation }: Props) {
+export default function SubscriptionPricesScreen(_props: Props) {
   const handleSelectPlan = (planId: string) => {};
 
   return (
@@ -95,7 +95,9 @@ export default function SubscriptionPricesScreen({ navigation }: Props) {
               <Text style={styles.planName}>{plan.name}</Text>
               <View style={styles.priceContainer}>
                 <Text style={styles.price}>{plan.price}</Text>
-                <Text style={styles.period}>/{plan.period}</Text>
+                {plan.period ? (
+                  <Text style={styles.period}>/{plan.period}</Text>
+                ) : null}
               </View>
             </View>
             <View style={styles.featuresContainer}>
@@ -119,7 +121,7 @@ export default function SubscriptionPricesScreen({ navigation }: Props) {
                   plan.popular && styles.selectButtonTextPopular,
                 ]}
               >
-                Select Plan
+                {plan.ctaLabel}
               </Text>
             </TouchableOpacity>
           </View>

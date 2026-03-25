@@ -9,7 +9,7 @@ class TestUserSeeder extends Seeder
 {
     public function run(): void
     {
-        User::firstOrCreate(
+        User::updateOrCreate(
             ['email' => 'driver123@vibedrive.test'],
             [
                 'name' => 'Driver 123',
