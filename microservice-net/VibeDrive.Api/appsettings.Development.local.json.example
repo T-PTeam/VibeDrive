@@ -5,10 +5,6 @@
       "Microsoft.AspNetCore": "Warning"
     }
   },
-  "AllowedHosts": "*",
-  "Redis": {
-    "ConnectionString": "localhost:6379"
-  },
   "Cors": {
     "AllowedOrigins": [
       "http://localhost:3000",
@@ -20,6 +16,6 @@
     ]
   },
   "OpenAI": {
-    "ApiKey": ""
+    "ApiKey": "your-openai-api-key-here"
   }
 }
