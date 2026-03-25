@@ -23,12 +23,14 @@ services:
     container_name: vibedrive-api-prod
     ports:
       - "5009:8080"
+    volumes:
+      - ../microservice-net/VibeDrive.Api/appsettings.Production.local.json:/app/appsettings.Production.local.json:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       - ASPNETCORE_Kestrel__Certificates__Default__Path=
-      - Redis__ConnectionString=${REDIS_CONNECTION_STRING:-redis:6379}
-      - Cors__AllowedOrigins=${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      - Redis__ConnectionString=${Redis__ConnectionString:-redis:6379}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     depends_on:
       redis:
         condition: service_healthy

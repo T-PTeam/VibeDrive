@@ -14,9 +14,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vibedrive.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "VibeDrive needs access to your microphone to record voice commands while driving.",
-        "NSBluetoothAlwaysUsageDescription": "VibeDrive needs Bluetooth access to connect to LED controllers and other BLE devices.",
-        "NSBluetoothPeripheralUsageDescription": "VibeDrive needs Bluetooth access to connect to LED controllers and other BLE devices.",
+        "NSMicrophoneUsageDescription": "VD needs access to your microphone to record voice commands while driving.",
+        "NSBluetoothAlwaysUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
+        "NSBluetoothPeripheralUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
         "LSApplicationQueriesSchemes": ["spotify", "spotify"],
         "ITSAppUsesNonExemptEncryption": false
       }
