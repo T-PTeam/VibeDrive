@@ -59,12 +59,15 @@ async function activateLoudspeakerThenSpeak(
     },
   });
 }
+import * as SecureStore from 'expo-secure-store';
 import { signalRService } from '../services/SignalRService';
 import { logger } from '../services/LoggerService';
 import { audioRecordingService } from '../services/AudioRecordingService';
 import { redisService } from '../services/RedisService';
 import { spotifyService } from '../services/SpotifyService';
 import { ledController } from '../services/LEDController';
+import { apiService } from '../services/ApiService';
+import { PHP_API_TOKEN_KEY } from '../constants/auth';
 
 type DriveScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -89,7 +92,9 @@ export default function DriveScreen({ navigation, route }: Props) {
   const [ledConnecting, setLedConnecting] = useState(false);
   const [ledConnected, setLedConnected] = useState(false);
   const [spotifyTesting, setSpotifyTesting] = useState(false);
+  const [chatSessionId, setChatSessionId] = useState<number | null>(null);
   const userId = route.params?.userId || 'driver123';
+  const userName = route.params?.userName;
 
   useEffect(() => {
     const connectSignalR = async () => {
@@ -233,22 +238,41 @@ export default function DriveScreen({ navigation, route }: Props) {
 
         if (result) {
           logger.info('DriveScreen', 'Recording stopped', result);
-          const success = await redisService.publishAudioRecording(
-            userId,
-            result.uri,
-            result.duration
-          );
-
-          if (!success) {
-            Alert.alert(
-              'Warning',
-              'Recording saved but failed to publish to Redis'
+          const token = await SecureStore.getItemAsync(PHP_API_TOKEN_KEY);
+          if (token) {
+            const chatResult = await apiService.sendAudioToChat(
+              result.uri,
+              token,
+              chatSessionId
             );
+            if (chatResult) {
+              setChatSessionId(chatResult.session_id);
+            } else {
+              setChatSessionId(null);
+            }
+          } else {
+            const success = await redisService.publishAudioRecording(
+              userId,
+              result.uri,
+              result.duration
+            );
+            if (!success) {
+              Alert.alert(
+                'Warning',
+                'Recording saved but failed to publish to Redis'
+              );
+            }
           }
         }
-      } catch (error) {
-        logger.error('DriveScreen', 'Failed to process recording', error);
-        Alert.alert('Error', 'Failed to process recording. Please try again.');
+      } catch (error: any) {
+        const message =
+          error?.message || 'Failed to process recording. Please try again.';
+        if (message.includes('rate limit')) {
+          logger.warn('DriveScreen', message);
+        } else {
+          logger.error('DriveScreen', 'Failed to process recording', error);
+        }
+        Alert.alert('Error', message);
       } finally {
         setIsUploading(false);
       }
@@ -265,6 +289,7 @@ export default function DriveScreen({ navigation, route }: Props) {
   };
 
   const handleLogout = async () => {
+    await SecureStore.deleteItemAsync(PHP_API_TOKEN_KEY);
     await signalRService.disconnect();
     navigation.replace('Login');
   };
@@ -374,6 +399,9 @@ export default function DriveScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
+        {userName ? (
+          <Text style={styles.userLabel}>Logged in as {userName}</Text>
+        ) : null}
         <TouchableOpacity
           style={[
             styles.microphoneButton,
@@ -413,6 +441,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  userLabel: {
+    position: 'absolute',
+    top: 24,
+    fontSize: 14,
+    color: '#888888',
   },
   microphoneButton: {
     width: 120,
