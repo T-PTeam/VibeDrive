@@ -20,7 +20,7 @@ try {
 
 export type RootStackParamList = {
   Login: undefined;
-  Drive: { userId?: string };
+  Drive: { userId?: string; userName?: string };
   SubscriptionPrices: undefined;
 };
 
