@@ -54,4 +54,51 @@ class AuthController extends Controller
             ], 500)->header('Content-Type', 'application/json');
         }
     }
+
+    public function register(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'name' => ['required', 'string', 'max:255'],
+                'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+                'password' => ['required', 'string', 'min:8', 'confirmed'],
+            ], [
+                'email.unique' => 'This email is already registered.',
+                'password.min' => 'Password must be at least 8 characters.',
+                'password.confirmed' => 'Password confirmation does not match.',
+            ]);
+
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => $validated['password'],
+            ]);
+
+            $token = $user->createToken('api-register')->plainTextToken;
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Registered successfully',
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'token' => $token,
+                ],
+            ], 201)->header('Content-Type', 'application/json');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422)->header('Content-Type', 'application/json');
+        } catch (\Throwable $e) {
+            Log::error('Register failed', ['exception' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $message = config('app.debug') ? $e->getMessage() : 'Server error during registration.';
+            return response()->json([
+                'status' => 'error',
+                'message' => $message,
+            ], 500)->header('Content-Type', 'application/json');
+        }
+    }
 }
