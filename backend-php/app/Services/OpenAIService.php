@@ -24,7 +24,28 @@ class OpenAIService
             return OpenAIResponse::error('OpenAI API key is not configured.');
         }
 
-        $path = $audio instanceof UploadedFile ? $audio->getRealPath() : $audio;
+        $tempPath = null;
+        if ($audio instanceof UploadedFile) {
+            $realPath = $audio->getRealPath();
+            $originalExtension = $audio->getClientOriginalExtension();
+            $ext = $originalExtension !== '' ? $originalExtension : 'm4a';
+            if (!is_string($realPath) || !is_readable($realPath)) {
+                return OpenAIResponse::error('Invalid or unreadable audio file.', 400);
+            }
+            $tempPath = tempnam(sys_get_temp_dir(), 'openai-audio-');
+            if ($tempPath === false) {
+                return OpenAIResponse::error('Failed to prepare audio file for transcription.', 500);
+            }
+            $pathWithExt = $tempPath . '.' . $ext;
+            if (!@copy($realPath, $pathWithExt)) {
+                @unlink($tempPath);
+                return OpenAIResponse::error('Failed to prepare audio file for transcription.', 500);
+            }
+            @unlink($tempPath);
+            $path = $pathWithExt;
+        } else {
+            $path = $audio;
+        }
         if (!is_string($path) || !is_readable($path)) {
             return OpenAIResponse::error('Invalid or unreadable audio file.', 400);
         }
@@ -48,6 +69,10 @@ class OpenAIService
             return OpenAIResponse::error('Unable to reach OpenAI: ' . $e->getMessage(), 503);
         } catch (\Throwable $e) {
             return OpenAIResponse::error('An unexpected error occurred while transcribing.', 500);
+        } finally {
+            if ($audio instanceof UploadedFile && is_string($path) && str_contains($path, sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'openai-audio-')) {
+                @unlink($path);
+            }
         }
     }
 

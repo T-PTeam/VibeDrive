@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { getPhpApiUrl } from '../config/api';
 import { PHP_API_TOKEN_KEY } from '../constants/auth';
+import LegalAgreement from '../components/LegalAgreement';
+import { saveLegalAccepted, getLegalAccepted } from '../utils/legal';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -27,8 +29,30 @@ export default function LoginScreen({ navigation }: Props) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [legalChecked, setLegalChecked] = useState(false);
+  const [legalError, setLegalError] = useState(false);
+
+  useEffect(() => {
+    getLegalAccepted().then((accepted) => {
+      if (accepted) setLegalChecked(true);
+    });
+  }, []);
+
+  const handleToggleLegal = () => {
+    setLegalChecked((prev) => !prev);
+    setLegalError(false);
+  };
+
+  const guardLegal = (): boolean => {
+    if (!legalChecked) {
+      setLegalError(true);
+      return false;
+    }
+    return true;
+  };
 
   const handleLogin = async () => {
+    if (!guardLegal()) return;
     if (!username.trim() || !password.trim()) {
       Alert.alert('Error', 'Please enter both username and password');
       return;
@@ -57,17 +81,18 @@ export default function LoginScreen({ navigation }: Props) {
       clearTimeout(pingTimeout);
       if (pingRes?.ok !== true) {
         setLoading(false);
-        const status = pingRes ? `HTTP ${pingRes.status}` : pingError ?? 'timeout/connection failed';
+        const status = pingRes
+          ? `HTTP ${pingRes.status}`
+          : (pingError ?? 'timeout/connection failed');
         const reason =
-          !pingRes && (pingError?.toLowerCase().includes('abort') || pingError?.toLowerCase().includes('timeout'))
+          !pingRes &&
+          (pingError?.toLowerCase().includes('abort') ||
+            pingError?.toLowerCase().includes('timeout'))
             ? 'Request timed out. Is anything listening on that URL?'
             : !pingRes
-              ? 'Connection refused or no response. Check: (1) Docker running? (2) Full stack: docker compose --profile full -f docker-compose.full.yml up -d (3) On a real device: set EXPO_PUBLIC_PHP_API_URL in .env to http://YOUR_MAC_IP:8080/api'
+              ? 'Connection refused or no response. Check: (1) Docker running? (2) Full stack: docker compose --profile full up -d in infrastructure (3) On a real device: use your Mac LAN IP in EXPO_PUBLIC_PHP_API_URL, e.g. http://YOUR_MAC_IP:8082/api'
               : `Server returned ${status}. Check Nginx and Laravel are up.`;
-        Alert.alert(
-          'Server unreachable',
-          `URL: ${loginUrl}\n\n${reason}`
-        );
+        Alert.alert('Server unreachable', `URL: ${loginUrl}\n\n${reason}`);
         return;
       }
 
@@ -111,6 +136,7 @@ export default function LoginScreen({ navigation }: Props) {
         if (payload?.token) {
           await SecureStore.setItemAsync(PHP_API_TOKEN_KEY, payload.token);
         }
+        await saveLegalAccepted();
         navigation.replace('Drive', { userId, userName });
       } else {
         Alert.alert('Login failed', 'Invalid response from server');
@@ -119,8 +145,9 @@ export default function LoginScreen({ navigation }: Props) {
       clearTimeout(timeoutId);
       const isAbort = error?.name === 'AbortError';
       const message = isAbort
-        ? `Request timed out to ${loginUrl}. Same Wi‑Fi? Backend running? (docker compose --profile full up -d)`
-        : error?.message ?? 'Could not reach server. Check network and try again.';
+        ? `Request timed out to ${loginUrl}. Same Wi‑Fi? Backend on Mac? (infrastructure: docker compose --profile full up -d). PHP via nginx is host port 8082.`
+        : (error?.message ??
+          'Could not reach server. Check network and try again.');
       Alert.alert(isAbort ? 'Connection timeout' : 'Error', message);
     } finally {
       setLoading(false);
@@ -132,6 +159,12 @@ export default function LoginScreen({ navigation }: Props) {
       <View style={styles.content}>
         <Text style={styles.title}>VibeDrive</Text>
         <Text style={styles.subtitle}>Welcome back</Text>
+
+        <LegalAgreement
+          checked={legalChecked}
+          onToggle={handleToggleLegal}
+          showError={legalError}
+        />
 
         <View style={styles.form}>
           <TextInput

@@ -51,6 +51,7 @@ microservice-net/appsettings.Development.json
 microservice-net/appsettings.*.json
 microservice-net/VibeDrive.Api/appsettings.Development.local.json
 microservice-net/VibeDrive.Api/appsettings.Stage.local.json
+microservice-net/VibeDrive.Api/appsettings.Production.local.json
 !microservice-net/appsettings.json
 microservice-net/.vs/
 microservice-net/.vscode/

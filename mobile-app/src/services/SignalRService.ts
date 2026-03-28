@@ -102,7 +102,7 @@ class SignalRService {
         }
 
         if (parsed && typeof parsed === 'object') {
-          const command = parsed.type || parsed.command;
+          const command = parsed.type || parsed.command || parsed.data?.type;
           if (command && this.messageHandlers.has(command)) {
             const handler = this.messageHandlers.get(command);
             if (handler) {
