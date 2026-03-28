@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { getPhpApiUrl } from '../config/api';
 import { PHP_API_TOKEN_KEY } from '../constants/auth';
+import LegalAgreement from '../components/LegalAgreement';
+import { saveLegalAccepted, getLegalAccepted } from '../utils/legal';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -27,8 +29,30 @@ export default function LoginScreen({ navigation }: Props) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [legalChecked, setLegalChecked] = useState(false);
+  const [legalError, setLegalError] = useState(false);
+
+  useEffect(() => {
+    getLegalAccepted().then((accepted) => {
+      if (accepted) setLegalChecked(true);
+    });
+  }, []);
+
+  const handleToggleLegal = () => {
+    setLegalChecked((prev) => !prev);
+    setLegalError(false);
+  };
+
+  const guardLegal = (): boolean => {
+    if (!legalChecked) {
+      setLegalError(true);
+      return false;
+    }
+    return true;
+  };
 
   const handleLogin = async () => {
+    if (!guardLegal()) return;
     if (!username.trim() || !password.trim()) {
       Alert.alert('Error', 'Please enter both username and password');
       return;
@@ -112,6 +136,7 @@ export default function LoginScreen({ navigation }: Props) {
         if (payload?.token) {
           await SecureStore.setItemAsync(PHP_API_TOKEN_KEY, payload.token);
         }
+        await saveLegalAccepted();
         navigation.replace('Drive', { userId, userName });
       } else {
         Alert.alert('Login failed', 'Invalid response from server');
@@ -138,10 +163,20 @@ export default function LoginScreen({ navigation }: Props) {
 
         <TouchableOpacity
           style={styles.skipLink}
-          onPress={() => navigation.replace('Drive', { userId: 'driver123' })}
+          onPress={async () => {
+            if (!guardLegal()) return;
+            await saveLegalAccepted();
+            navigation.replace('Drive', { userId: 'driver123' });
+          }}
         >
           <Text style={styles.skipLinkText}>Skip login (demo)</Text>
         </TouchableOpacity>
+
+        <LegalAgreement
+          checked={legalChecked}
+          onToggle={handleToggleLegal}
+          showError={legalError}
+        />
 
         <View style={styles.form}>
           <TextInput

@@ -1,13 +1,24 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
+  Platform,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useIAP, finishTransaction, ErrorCode, type Purchase } from 'expo-iap';
 import { RootStackParamList } from '../../App';
+import LegalAgreement from '../components/LegalAgreement';
+import { saveLegalAccepted, getLegalAccepted } from '../utils/legal';
+import { ALL_SUBSCRIPTION_SKUS } from '../constants/subscriptions';
+import {
+  buildSubscriptionPurchaseParams,
+  isPaidPlanId,
+  skuForPaidPlan,
+} from '../utils/subscriptionPurchase';
 
 type SubscriptionPricesScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -69,8 +80,106 @@ const plans: SubscriptionPlan[] = [
   },
 ];
 
-export default function SubscriptionPricesScreen(_props: Props) {
-  const handleSelectPlan = (planId: string) => {};
+export default function SubscriptionPricesScreen({ navigation }: Props) {
+  const [legalChecked, setLegalChecked] = useState(false);
+  const [legalError, setLegalError] = useState(false);
+  const [iapBusy, setIapBusy] = useState(false);
+
+  const handlePurchaseSuccess = useCallback(
+    async (purchase: Purchase) => {
+      try {
+        await finishTransaction({ purchase, isConsumable: false });
+        navigation.goBack();
+      } catch {
+        Alert.alert(
+          'Purchase',
+          'Could not complete the purchase. Please try again.'
+        );
+      } finally {
+        setIapBusy(false);
+      }
+    },
+    [navigation]
+  );
+
+  const { connected, subscriptions, fetchProducts, requestPurchase } = useIAP({
+    onPurchaseSuccess: handlePurchaseSuccess,
+    onPurchaseError: (error) => {
+      setIapBusy(false);
+      if (error.code === ErrorCode.UserCancelled) {
+        return;
+      }
+      Alert.alert('Purchase failed', error.message || 'Please try again.');
+    },
+  });
+
+  useEffect(() => {
+    getLegalAccepted().then((accepted) => {
+      if (accepted) setLegalChecked(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!connected) return;
+    fetchProducts({ skus: ALL_SUBSCRIPTION_SKUS, type: 'subs' }).catch(
+      () => undefined
+    );
+  }, [connected, fetchProducts]);
+
+  const handleToggleLegal = () => {
+    setLegalChecked((prev) => !prev);
+    setLegalError(false);
+  };
+
+  const planPriceLabel = (plan: SubscriptionPlan) => {
+    if (plan.id === 'free') {
+      return { main: plan.price, suffix: plan.period };
+    }
+    if (!isPaidPlanId(plan.id)) {
+      return { main: plan.price, suffix: plan.period };
+    }
+    const sku = skuForPaidPlan(plan.id);
+    const sub = subscriptions.find((s) => s.id === sku);
+    return {
+      main: sub?.displayPrice ?? plan.price,
+      suffix: plan.period,
+    };
+  };
+
+  const handleSelectPlan = async (planId: string) => {
+    if (!legalChecked) {
+      setLegalError(true);
+      return;
+    }
+    await saveLegalAccepted();
+    if (planId === 'free') {
+      navigation.goBack();
+      return;
+    }
+    if (!isPaidPlanId(planId)) {
+      return;
+    }
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        'Not available',
+        'Subscriptions can only be purchased in the iOS or Android app.'
+      );
+      return;
+    }
+    if (!connected) {
+      Alert.alert('Store unavailable', 'Check your connection and try again.');
+      return;
+    }
+    const sku = skuForPaidPlan(planId);
+    setIapBusy(true);
+    try {
+      await requestPurchase(
+        buildSubscriptionPurchaseParams(sku, subscriptions)
+      );
+    } catch {
+      setIapBusy(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -81,51 +190,62 @@ export default function SubscriptionPricesScreen(_props: Props) {
         <Text style={styles.title}>Subscription Plans</Text>
         <Text style={styles.subtitle}>Choose the plan that works for you</Text>
 
-        {plans.map((plan) => (
-          <View
-            key={plan.id}
-            style={[styles.planCard, plan.popular && styles.planCardPopular]}
-          >
-            {plan.popular && (
-              <View style={styles.popularBadge}>
-                <Text style={styles.popularBadgeText}>POPULAR</Text>
-              </View>
-            )}
-            <View style={styles.planHeader}>
-              <Text style={styles.planName}>{plan.name}</Text>
-              <View style={styles.priceContainer}>
-                <Text style={styles.price}>{plan.price}</Text>
-                {plan.period ? (
-                  <Text style={styles.period}>/{plan.period}</Text>
-                ) : null}
-              </View>
-            </View>
-            <View style={styles.featuresContainer}>
-              {plan.features.map((feature, index) => (
-                <View key={index} style={styles.featureRow}>
-                  <Text style={styles.featureIcon}>✓</Text>
-                  <Text style={styles.featureText}>{feature}</Text>
-                </View>
-              ))}
-            </View>
-            <TouchableOpacity
-              style={[
-                styles.selectButton,
-                plan.popular && styles.selectButtonPopular,
-              ]}
-              onPress={() => handleSelectPlan(plan.id)}
+        <LegalAgreement
+          checked={legalChecked}
+          onToggle={handleToggleLegal}
+          showError={legalError}
+        />
+
+        {plans.map((plan) => {
+          const priceLabel = planPriceLabel(plan);
+          return (
+            <View
+              key={plan.id}
+              style={[styles.planCard, plan.popular && styles.planCardPopular]}
             >
-              <Text
+              {plan.popular && (
+                <View style={styles.popularBadge}>
+                  <Text style={styles.popularBadgeText}>POPULAR</Text>
+                </View>
+              )}
+              <View style={styles.planHeader}>
+                <Text style={styles.planName}>{plan.name}</Text>
+                <View style={styles.priceContainer}>
+                  <Text style={styles.price}>{priceLabel.main}</Text>
+                  {priceLabel.suffix ? (
+                    <Text style={styles.period}>/{priceLabel.suffix}</Text>
+                  ) : null}
+                </View>
+              </View>
+              <View style={styles.featuresContainer}>
+                {plan.features.map((feature, index) => (
+                  <View key={index} style={styles.featureRow}>
+                    <Text style={styles.featureIcon}>✓</Text>
+                    <Text style={styles.featureText}>{feature}</Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity
                 style={[
-                  styles.selectButtonText,
-                  plan.popular && styles.selectButtonTextPopular,
+                  styles.selectButton,
+                  plan.popular && styles.selectButtonPopular,
+                  iapBusy && styles.selectButtonDisabled,
                 ]}
+                onPress={() => handleSelectPlan(plan.id)}
+                disabled={iapBusy}
               >
-                {plan.ctaLabel}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+                <Text
+                  style={[
+                    styles.selectButtonText,
+                    plan.popular && styles.selectButtonTextPopular,
+                  ]}
+                >
+                  {plan.ctaLabel}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -235,6 +355,9 @@ const styles = StyleSheet.create({
   },
   selectButtonPopular: {
     backgroundColor: '#000000',
+  },
+  selectButtonDisabled: {
+    opacity: 0.5,
   },
   selectButtonText: {
     color: '#ffffff',
