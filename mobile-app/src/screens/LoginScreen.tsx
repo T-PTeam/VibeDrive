@@ -159,18 +159,6 @@ export default function LoginScreen({ navigation }: Props) {
       <View style={styles.content}>
         <Text style={styles.title}>VibeDrive</Text>
         <Text style={styles.subtitle}>Welcome back</Text>
-        <Text style={styles.note}>Use driver123 / driver123 to sign in</Text>
-
-        <TouchableOpacity
-          style={styles.skipLink}
-          onPress={async () => {
-            if (!guardLegal()) return;
-            await saveLegalAccepted();
-            navigation.replace('Drive', { userId: 'driver123' });
-          }}
-        >
-          <Text style={styles.skipLinkText}>Skip login (demo)</Text>
-        </TouchableOpacity>
 
         <LegalAgreement
           checked={legalChecked}
@@ -209,6 +197,13 @@ export default function LoginScreen({ navigation }: Props) {
               <Text style={styles.buttonText}>Login</Text>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.createAccountButton}
+            onPress={() => navigation.navigate('Register')}
+          >
+            <Text style={styles.createAccountButtonText}>Create account</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -245,13 +240,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
   },
-  skipLink: {
-    marginBottom: 16,
+  createAccountButton: {
+    height: 50,
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
   },
-  skipLinkText: {
-    fontSize: 14,
-    color: '#666666',
-    textDecorationLine: 'underline',
+  createAccountButtonText: {
+    color: '#000000',
+    fontSize: 16,
+    fontWeight: '600',
   },
   form: {
     width: '100%',

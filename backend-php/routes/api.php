@@ -34,6 +34,8 @@ Route::get('/db-check', function () {
 Route::match(['options'], '/login', fn () => response('', 204));
 Route::get('/login', fn () => response()->json(['error' => 'Method not allowed', 'hint' => 'Use POST with login and password'], 405));
 Route::post('/login', [AuthController::class, 'login']);
+Route::match(['options'], '/register', fn () => response('', 204));
+Route::post('/register', [AuthController::class, 'register']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', fn (\Illuminate\Http\Request $r) => response()->json([
