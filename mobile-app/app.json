@@ -54,7 +54,8 @@
       "plugins": [
         "expo-secure-store",
         "expo-iap"
-      ]
+      ],
+      "package": "com.vibedrive.mobile"
     },
     "extra": {
       "eas": {
