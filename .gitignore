@@ -112,3 +112,4 @@ temp/
 tmp/
 .env.local
 .env.*.local
+.cursor
