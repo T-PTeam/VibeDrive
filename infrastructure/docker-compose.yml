@@ -23,7 +23,7 @@ services:
       - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: vibedrive
+      MYSQL_DATABASE: vibedrive_db
       MYSQL_USER: vibedrive
       MYSQL_PASSWORD: vibedrive
     volumes:
@@ -49,11 +49,13 @@ services:
       - DB_CONNECTION=mysql
       - DB_HOST=mysql
       - DB_PORT=3306
-      - DB_DATABASE=vibedrive
+      - DB_DATABASE=vibedrive_db
       - DB_USERNAME=vibedrive
       - DB_PASSWORD=vibedrive
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_CLIENT=predis
     depends_on:
       mysql:
         condition: service_healthy
@@ -72,11 +74,15 @@ services:
     container_name: vibedrive-api
     ports:
       - "5009:8080"
+    volumes:
+      - ../microservice-net/VibeDrive.Api/appsettings.Development.local.json:/app/appsettings.Development.local.json:ro
+      - ../microservice-net/VibeDrive.Api/appsettings.Stage.local.json:/app/appsettings.Stage.local.json:ro
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Development}
       - ASPNETCORE_URLS=http://+:8080
       - ASPNETCORE_Kestrel__Certificates__Default__Path=
-      - Redis__ConnectionString=redis:6379
+      - Redis__ConnectionString=${Redis__ConnectionString:-redis:6379}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - Cors__AllowedOrigins__0=http://localhost:3000
       - Cors__AllowedOrigins__1=http://localhost:5173
       - Cors__AllowedOrigins__2=http://127.0.0.1:3000
@@ -112,8 +118,9 @@ services:
       - ../mobile-app:/app
       - /app/node_modules
     environment:
-      - EXPO_PUBLIC_API_URL=http://api:8080
-      - EXPO_PUBLIC_SIGNALR_URL=http://api:8080/driverhub
+      - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL:-http://api:8080}
+      - EXPO_PUBLIC_SPOTIFY_CLIENT_ID=${EXPO_PUBLIC_SPOTIFY_CLIENT_ID:-}
+      - EXPO_PUBLIC_SPOTIFY_REDIRECT_URI=${EXPO_PUBLIC_SPOTIFY_REDIRECT_URI:-vibedrive://spotify-callback}
     depends_on:
       - api
     networks:
@@ -126,18 +133,20 @@ services:
     image: nginx:alpine
     container_name: vibedrive-nginx
     ports:
-      - "8080:80"
-      - "8443:443"
+      - "8082:80"
+      - "8444:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/conf.d:/etc/nginx/conf.d
     depends_on:
+      - backend-php
       - api
     networks:
       - vibedrive-network
     restart: unless-stopped
     profiles:
       - full
+    
 
 volumes:
   redis-data:

@@ -3,5 +3,9 @@
     "@config-plugins/react-native-ble-plx": "^7.0.0",
     "expo": "^55.0.5",
     "react-native-ble-plx": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.10",
+    "typescript": "~5.9.2"
   }
 }

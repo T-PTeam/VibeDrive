@@ -102,7 +102,7 @@ class SignalRService {
         }
 
         if (parsed && typeof parsed === 'object') {
-          const command = parsed.type || parsed.command;
+          const command = parsed.type || parsed.command || parsed.data?.type;
           if (command && this.messageHandlers.has(command)) {
             const handler = this.messageHandlers.get(command);
             if (handler) {
@@ -148,7 +148,10 @@ class SignalRService {
       this.connection.onclose((error) => {
         this.notifyStateChange('Disconnected');
         if (error) {
-          logger.error('SignalR', 'Connection closed with error', error);
+          logger.error('SignalR', 'Connection closed with error', {
+            message: error?.message,
+            name: error?.name,
+          });
         } else {
           logger.info('SignalR', 'Connection closed');
         }
@@ -156,20 +159,13 @@ class SignalRService {
 
       await this.connection.start();
       this.notifyStateChange('Connected');
-      let connectionId: string | null = null;
-      try {
-        connectionId = this.connection?.connectionId ?? null;
-      } catch {
-        connectionId = null;
-      }
-      logger.info('SignalR', 'Connected successfully', {
-        connectionId: connectionId ?? 'unknown',
-      });
-    } catch (error: unknown) {
+      const connectionId = this.connection?.connectionId ?? undefined;
+      logger.info('SignalR', 'Connected successfully', { connectionId });
+    } catch (error: any) {
       this.notifyStateChange('Disconnected');
       const err = error as { message?: string };
       const message =
-        err?.message ?? (typeof error === 'string' ? error : 'Unknown error');
+        error?.message || (typeof error === 'string' ? error : 'Unknown error');
       logger.error('SignalR', 'Connection failed', {
         baseUrl: this.baseUrl,
         userId: this.userId,

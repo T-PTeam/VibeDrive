@@ -1,18 +1,6 @@
 import { Platform } from 'react-native';
 import { logger } from './LoggerService';
-
-const getPhpApiUrl = (): string => {
-  if (__DEV__) {
-    if (Platform.OS === 'android' || Platform.OS === 'ios') {
-      return process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.0.155/api';
-    }
-    if (Platform.OS === 'web') {
-      return 'http://localhost/api';
-    }
-  }
-
-  return process.env.EXPO_PUBLIC_PHP_API_URL || 'http://192.168.0.155/api';
-};
+import { getPhpApiUrl } from '../config/api';
 
 class ApiService {
   private baseUrl: string = getPhpApiUrl();
@@ -79,6 +67,81 @@ class ApiService {
     } catch (error) {
       logger.error('ApiService', 'Upload error', error);
       throw error;
+    }
+  }
+
+  async sendAudioToChat(
+    audioUri: string,
+    token: string,
+    sessionId?: number | null
+  ): Promise<{ session_id: number; data?: Record<string, unknown> } | null> {
+    try {
+      const formData = new FormData();
+      const filename = audioUri.split('/').pop() || 'recording.m4a';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `audio/${match[1]}` : 'audio/m4a';
+      formData.append('audio', {
+        uri: audioUri,
+        name: filename,
+        type: type,
+      } as any);
+      if (sessionId != null) {
+        formData.append('session_id', String(sessionId));
+      }
+      const response = await fetch(`${this.baseUrl}/chat`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      const raw = await response.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        logger.error('ApiService', 'Chat response not JSON', {
+          raw: raw.slice(0, 100),
+        });
+        return null;
+      }
+      if (!response.ok) {
+        logger.error('ApiService', 'Chat request failed', {
+          status: response.status,
+          data,
+        });
+        const message = (data?.message as string) || '';
+        if (
+          response.status === 429 ||
+          message.toLowerCase().includes('rate limit')
+        ) {
+          const rateLimitError = new Error(
+            'OpenAI rate limit exceeded. Please try again in a few minutes.'
+          );
+          logger.warn('ApiService', rateLimitError.message);
+          throw rateLimitError;
+        }
+        return null;
+      }
+      const inner = data.data as Record<string, unknown> | undefined;
+      let sid: number | undefined;
+      if (typeof inner?.session_id === 'number' && inner.session_id > 0) {
+        sid = inner.session_id;
+      } else if (typeof inner?.session_id === 'string') {
+        const n = parseInt(inner.session_id, 10);
+        if (!Number.isNaN(n) && n > 0) sid = n;
+      }
+      if (sid !== undefined) {
+        return { session_id: sid, data: inner };
+      }
+      return null;
+    } catch (error: any) {
+      if (error?.message?.includes('rate limit')) {
+        throw error;
+      }
+      logger.error('ApiService', 'Send audio to chat failed', error);
+      return null;
     }
   }
 }

@@ -134,12 +134,14 @@ class SpotifyService {
 
       const devices = await this.getDevices(finalAccessToken);
       if (devices.length === 0) {
-        await this.openSpotifyApp(uri);
-        Alert.alert(
-          'Spotify',
-          'Open Spotify once on this device, then try the command again.'
-        );
-        return false;
+        const opened = await this.openSpotifyApp(uri);
+        if (!opened) {
+          Alert.alert(
+            'Spotify',
+            'Open Spotify once on this device, then try the command again.'
+          );
+        }
+        return opened;
       }
 
       const preferred = devices.find((d) => d.is_active) ?? devices[0];
@@ -158,8 +160,7 @@ class SpotifyService {
         preferred.id
       );
       if (!transferred) {
-        await this.openSpotifyApp(uri);
-        return false;
+        return await this.openSpotifyApp(uri);
       }
 
       return await this.playUriOnDevice(finalAccessToken, preferred.id, uri);
@@ -226,6 +227,32 @@ class SpotifyService {
     }
     if (data.track_id || data.trackId) {
       return { trackId: data.track_id || data.trackId };
+    }
+    const trackName =
+      typeof data.track_name === 'string'
+        ? data.track_name.trim()
+        : typeof data.trackName === 'string'
+          ? data.trackName.trim()
+          : '';
+    const artistName =
+      typeof data.artist_name === 'string'
+        ? data.artist_name.trim()
+        : typeof data.artistName === 'string'
+          ? data.artistName.trim()
+          : '';
+    const genre =
+      typeof data.genre === 'string'
+        ? data.genre.trim()
+        : typeof data.style === 'string'
+          ? data.style.trim()
+          : '';
+    if (trackName || artistName || genre) {
+      const parts = [
+        trackName,
+        artistName,
+        genre ? `${genre} music` : '',
+      ].filter(Boolean);
+      return { query: parts.join(' ') };
     }
     if (data.query || data.search || data.song || data.track) {
       return {
@@ -528,7 +555,7 @@ class SpotifyService {
     return true;
   }
 
-  private async openSpotifyApp(uri: string): Promise<void> {
+  private async openSpotifyApp(uri: string): Promise<boolean> {
     try {
       logger.info('SpotifyService', 'Opening Spotify', { uri });
       const canOpen = await Linking.canOpenURL(uri);
@@ -542,26 +569,29 @@ class SpotifyService {
       }
       await Linking.openURL(uri);
       logger.info('SpotifyService', 'Successfully opened Spotify');
+      return true;
     } catch (error) {
       logger.warn('SpotifyService', 'Failed to open Spotify app', error);
 
       if (uri.startsWith('spotify:track:')) {
         const id = uri.replace('spotify:track:', '');
         await Linking.openURL(`https://open.spotify.com/track/${id}`);
-        return;
+        return true;
       }
 
       if (uri.startsWith('spotify:search:')) {
         const q = uri.replace('spotify:search:', '');
         await Linking.openURL(`https://open.spotify.com/search/${q}`);
-        return;
+        return true;
       }
 
       if (Platform.OS === 'android') {
         await Linking.openURL(
           'https://play.google.com/store/apps/details?id=com.spotify.music'
         );
+        return true;
       }
+      return false;
     }
   }
 

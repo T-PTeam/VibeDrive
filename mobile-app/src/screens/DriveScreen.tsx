@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,7 +12,6 @@ import { RouteProp } from '@react-navigation/native';
 import * as Speech from 'expo-speech';
 import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { RootStackParamList } from '../../App';
-import { getPhpApiUrl } from '../config/api';
 
 const SPEAKER_AUDIO_MODE = {
   allowsRecordingIOS: false,
@@ -61,18 +59,15 @@ async function activateLoudspeakerThenSpeak(
     },
   });
 }
+import * as SecureStore from 'expo-secure-store';
 import { signalRService } from '../services/SignalRService';
 import { logger } from '../services/LoggerService';
 import { audioRecordingService } from '../services/AudioRecordingService';
 import { redisService } from '../services/RedisService';
 import { spotifyService } from '../services/SpotifyService';
 import { ledController } from '../services/LEDController';
-import LoadOfferCard, { LoadOfferPayload } from '../components/LoadOfferCard';
-import ActionProposalOverlay from '../features/voice-assistant/components/ActionProposalOverlay';
-import { coerceActiveRoute } from '../features/voice-assistant/utils/coerceActiveRoute';
-import { loadsService } from '../services/LoadsService';
-import { locationService } from '../services/LocationService';
-import type { ActiveRouteDto } from '../types/loads';
+import { apiService } from '../services/ApiService';
+import { PHP_API_TOKEN_KEY } from '../constants/auth';
 
 type DriveScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -94,35 +89,9 @@ export default function DriveScreen({ navigation, route }: Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const [ledConnecting, setLedConnecting] = useState(false);
-  const [ledConnected, setLedConnected] = useState(false);
-  const [spotifyTesting, setSpotifyTesting] = useState(false);
-  const [loadOffer, setLoadOffer] = useState<LoadOfferPayload | null>(null);
-  const [activeRoute, setActiveRoute] = useState<ActiveRouteDto | null>(null);
-  const [actionProposal, setActionProposal] = useState<{
-    summaryText: string;
-    loadId: string;
-    oneBasedIndex: number | null;
-    expiresAt: string | null;
-  } | null>(null);
+  const [chatSessionId, setChatSessionId] = useState<number | null>(null);
   const userId = route.params?.userId || 'driver123';
-
-  const fetchActiveRoute = useCallback(async () => {
-    const route = await loadsService.getActiveRoute(userId);
-    setActiveRoute(route);
-  }, [userId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchActiveRoute();
-      const phpUrl = getPhpApiUrl();
-      locationService.setBaseUrl(phpUrl);
-      locationService.requestPermissions().then((granted) => {
-        if (granted) locationService.startWatching(userId);
-      });
-      return () => locationService.stopWatching();
-    }, [fetchActiveRoute, userId])
-  );
+  const userName = route.params?.userName;
 
   useEffect(() => {
     const connectSignalR = async () => {
@@ -188,21 +157,6 @@ export default function DriveScreen({ navigation, route }: Props) {
         }
       });
 
-      signalRService.onMessage('action_proposal', (_message, parsed) => {
-        const d = parsed?.data;
-        if (!d || typeof d !== 'object') {
-          return;
-        }
-        const rec = d as Record<string, unknown>;
-        const ob = rec.one_based_index;
-        setActionProposal({
-          summaryText: String(rec.summary_text ?? ''),
-          loadId: String(rec.load_id ?? ''),
-          oneBasedIndex: typeof ob === 'number' ? ob : null,
-          expiresAt: rec.expires_at ? String(rec.expires_at) : null,
-        });
-      });
-
       signalRService.onMessage('ai_response', async (message, parsed) => {
         logger.info('DriveScreen', 'Received AI response', {
           message,
@@ -232,85 +186,9 @@ export default function DriveScreen({ navigation, route }: Props) {
           }
         }
 
-        const arRaw = parsed?.data?.active_route;
-        if (arRaw) {
-          const coerced = coerceActiveRoute(arRaw);
-          if (coerced) {
-            setActiveRoute(coerced);
-          }
-        }
-
-        if (aiMessage) {
-          const lower = aiMessage.toLowerCase();
-          if (
-            arRaw ||
-            lower.includes('nothing to confirm') ||
-            lower.includes('load accepted') ||
-            lower.includes('could not accept') ||
-            lower.includes('okay, cancelled')
-          ) {
-            setActionProposal(null);
-          }
-        }
-
         if (ledController.isConnected()) {
           const color = ledController.getColorForTrigger('ai_response');
           await ledController.setColor(color);
-        }
-      });
-
-      signalRService.onMessage('LoadOffer', (_message, parsed) => {
-        const raw = parsed?.payload ?? parsed;
-        if (!raw || typeof raw !== 'object') return;
-        const p = raw as Record<string, unknown>;
-        const payload: LoadOfferPayload = {
-          id: String(p.id ?? p.load_id ?? ''),
-          origin: String(p.origin ?? p.origin_city ?? ''),
-          destination: String(
-            p.destination ?? p.dest_city ?? p.destination_city ?? ''
-          ),
-          rate:
-            typeof p.rate === 'number'
-              ? p.rate
-              : Number(p.rate) || String(p.rate ?? ''),
-          currency: p.currency != null ? String(p.currency) : undefined,
-          weightKg:
-            p.weightKg != null
-              ? Number(p.weightKg)
-              : p.weight_kg != null
-                ? Number(p.weight_kg)
-                : undefined,
-          volumeM3:
-            p.volumeM3 != null
-              ? Number(p.volumeM3)
-              : p.volume_m3 != null
-                ? Number(p.volume_m3)
-                : undefined,
-          distanceKm:
-            p.distanceKm != null
-              ? Number(p.distanceKm)
-              : p.distance_km != null
-                ? Number(p.distance_km)
-                : undefined,
-          source: p.source != null ? String(p.source) : undefined,
-        };
-        if (payload.id && payload.origin && payload.destination) {
-          setLoadOffer(payload);
-          const rateStr =
-            typeof payload.rate === 'number'
-              ? payload.rate.toLocaleString()
-              : String(payload.rate);
-          const phrase = `New load offer: ${payload.origin} to ${payload.destination}, ${payload.currency ?? 'USD'} ${rateStr}`;
-          Speech.stop();
-          Speech.speak(phrase, {
-            language: 'en-US',
-            pitch: 1.05,
-            rate: 0.92,
-            volume: 1.0,
-          });
-          if (ledController.isConnected()) {
-            ledController.pulse(ledController.getColorForTrigger('load_offer'));
-          }
         }
       });
     };
@@ -322,8 +200,6 @@ export default function DriveScreen({ navigation, route }: Props) {
     return () => {
       signalRService.removeMessageHandler('play_music');
       signalRService.removeMessageHandler('ai_response');
-      signalRService.removeMessageHandler('action_proposal');
-      signalRService.removeMessageHandler('LoadOffer');
       signalRService.disconnect();
       if (audioRecordingService.getIsRecording()) {
         audioRecordingService.cancelRecording();
@@ -359,30 +235,118 @@ export default function DriveScreen({ navigation, route }: Props) {
 
         if (result) {
           logger.info('DriveScreen', 'Recording stopped', result);
-          const [activeRoute, proposedLoads] = await Promise.all([
-            loadsService.getActiveRoute(userId),
-            loadsService.getProposedLoads(userId),
-          ]);
-          const success = await redisService.publishAudioRecording(
-            userId,
-            result.uri,
-            result.duration,
-            {
-              active_route: activeRoute,
-              proposed_loads: proposedLoads,
-            }
-          );
-
-          if (!success) {
-            Alert.alert(
-              'Warning',
-              'Recording saved but failed to publish to Redis'
+          const token = await SecureStore.getItemAsync(PHP_API_TOKEN_KEY);
+          if (token) {
+            logger.info('DriveScreen', 'Sending audio to chat API', {
+              hasToken: true,
+              hasSessionId: chatSessionId != null,
+            });
+            const chatResult = await apiService.sendAudioToChat(
+              result.uri,
+              token,
+              chatSessionId
             );
+            logger.info('DriveScreen', 'Chat API result received', {
+              hasResult: chatResult != null,
+              sessionId: chatResult?.session_id ?? null,
+              hasData: chatResult?.data != null,
+              dataKeys: chatResult?.data ? Object.keys(chatResult.data) : [],
+            });
+            if (chatResult) {
+              setChatSessionId(chatResult.session_id);
+              const toolCalls = Array.isArray(chatResult.data?.tool_calls)
+                ? chatResult.data.tool_calls
+                : [];
+              const playMusicCall = toolCalls.find((toolCall) => {
+                if (!toolCall || typeof toolCall !== 'object') return false;
+                const name =
+                  typeof (toolCall as Record<string, unknown>).name === 'string'
+                    ? (toolCall as Record<string, unknown>).name
+                    : '';
+                return name === 'play_music';
+              }) as { arguments?: Record<string, unknown> } | undefined;
+              if (playMusicCall) {
+                const args =
+                  playMusicCall.arguments &&
+                  typeof playMusicCall.arguments === 'object'
+                    ? playMusicCall.arguments
+                    : {};
+                const success = await spotifyService.playMusic(args);
+                logger.info('DriveScreen', 'Handled play_music tool call', {
+                  success,
+                  args,
+                });
+                if (!success) {
+                  Alert.alert(
+                    'Spotify',
+                    'Could not start playback. Open Spotify and try again.'
+                  );
+                }
+              }
+              const assistantMessage = chatResult.data?.assistant_message as
+                | { content?: unknown }
+                | undefined;
+              const assistantText =
+                typeof assistantMessage?.content === 'string'
+                  ? assistantMessage.content
+                  : null;
+              if (assistantText) {
+                try {
+                  Speech.stop();
+                  await activateLoudspeakerThenSpeak(assistantText, () => {
+                    Alert.alert('AI Assistant', assistantText);
+                  });
+                  logger.info(
+                    'DriveScreen',
+                    'Spoke AI response from chat API',
+                    {
+                      message: assistantText,
+                    }
+                  );
+                } catch (error) {
+                  logger.error(
+                    'DriveScreen',
+                    'Failed to speak AI response from chat API',
+                    error
+                  );
+                  Alert.alert('AI Assistant', assistantText);
+                }
+              } else {
+                Alert.alert(
+                  'No AI response',
+                  'Request succeeded but assistant message was empty.'
+                );
+              }
+            } else {
+              setChatSessionId(null);
+              Alert.alert(
+                'No AI response',
+                'Chat request completed but returned no response payload.'
+              );
+            }
+          } else {
+            const success = await redisService.publishAudioRecording(
+              userId,
+              result.uri,
+              result.duration
+            );
+            if (!success) {
+              Alert.alert(
+                'Warning',
+                'Recording saved but failed to publish to Redis'
+              );
+            }
           }
         }
-      } catch (error) {
-        logger.error('DriveScreen', 'Failed to process recording', error);
-        Alert.alert('Error', 'Failed to process recording. Please try again.');
+      } catch (error: any) {
+        const message =
+          error?.message || 'Failed to process recording. Please try again.';
+        if (message.includes('rate limit')) {
+          logger.warn('DriveScreen', message);
+        } else {
+          logger.error('DriveScreen', 'Failed to process recording', error);
+        }
+        Alert.alert('Error', message);
       } finally {
         setIsUploading(false);
       }
@@ -399,6 +363,7 @@ export default function DriveScreen({ navigation, route }: Props) {
   };
 
   const handleLogout = async () => {
+    await SecureStore.deleteItemAsync(PHP_API_TOKEN_KEY);
     await signalRService.disconnect();
     navigation.replace('Login');
   };
@@ -407,109 +372,15 @@ export default function DriveScreen({ navigation, route }: Props) {
     navigation.navigate('SubscriptionPrices');
   };
 
-  const handleRouteSetup = () => {
-    navigation.navigate('RouteSetup', { userId });
-  };
-
-  const handleNavigate = () => {
-    if (!activeRoute) {
-      Alert.alert('Navigation', 'Set a route first.');
-      return;
-    }
-    navigation.navigate('Navigation', {
-      originQuery: activeRoute.origin_city,
-      destQuery: activeRoute.dest_city,
-    });
-  };
-
-  const handleConnectLED = async () => {
-    setLedConnecting(true);
-    try {
-      const ok = await ledController.connect();
-      setLedConnected(ok);
-      if (ok) {
-        Alert.alert('LED', 'Connected to ' + LED_DEVICE_NAME);
-      } else {
-        Alert.alert(
-          'LED',
-          'Could not find "' +
-            LED_DEVICE_NAME +
-            '". Make sure the virtual peripheral is advertising and uses service UUID ' +
-            LED_SERVICE_UUID
-        );
-      }
-    } catch (e) {
-      setLedConnected(false);
-      Alert.alert('LED', 'Connect failed. Is Bluetooth on?');
-    } finally {
-      setLedConnecting(false);
-    }
-  };
-
-  const handleDisconnectLED = async () => {
-    await ledController.disconnect();
-    setLedConnected(false);
-  };
-
-  const handleTestSpotify = async () => {
-    const spotifyClientId = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID || '';
-    if (!spotifyClientId) {
-      Alert.alert(
-        'Spotify',
-        'Set EXPO_PUBLIC_SPOTIFY_CLIENT_ID in .env and restart the app.'
-      );
-      return;
-    }
-    setSpotifyTesting(true);
-    try {
-      const success = await spotifyService.playMusic({ query: 'music' });
-      if (success) {
-        Alert.alert('Music', 'Playing on Spotify');
-      } else {
-        Alert.alert(
-          'Spotify',
-          'Play failed. Check: 1) Redirect URI in Spotify Dashboard 2) Spotify app open or Premium account.'
-        );
-      }
-    } catch (error) {
-      logger.error('DriveScreen', 'Test Spotify error', error);
-      Alert.alert('Spotify', 'Error: ' + String(error));
-    } finally {
-      setSpotifyTesting(false);
-    }
-  };
-
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerButtons}>
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={ledConnected ? handleDisconnectLED : handleConnectLED}
-            disabled={ledConnecting}
-          >
-            <Text style={styles.headerButtonText}>
-              {ledConnecting ? '...' : ledConnected ? 'LED ✓' : 'LED'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={handleRouteSetup}
-          >
-            <Text style={styles.headerButtonText}>Route</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={handleNavigate}
-            disabled={!activeRoute}
-          >
-            <Text style={styles.headerButtonText}>Navigate</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerButton}
             onPress={handleViewPrices}
           >
-            <Text style={styles.headerButtonText}>Subscription</Text>
+            <Text style={styles.headerButtonText}>Plans</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.headerButton, styles.logoutButton]}
@@ -522,60 +393,14 @@ export default function DriveScreen({ navigation, route }: Props) {
         </View>
       ),
     });
-  }, [navigation, ledConnected, ledConnecting, spotifyTesting]);
-
-  const handleLoadOfferAccept = async (id: string) => {
-    setLoadOffer(null);
-    try {
-      const newRoute = await loadsService.acceptLoad(userId, id);
-      if (newRoute) {
-        setActiveRoute(newRoute);
-        Alert.alert(
-          'Load accepted',
-          `Route is now ${newRoute.origin_city} to ${newRoute.dest_city}.`
-        );
-      } else {
-        Alert.alert('Error', 'Failed to accept load. Please try again.');
-      }
-    } catch (e) {
-      logger.error('DriveScreen', 'Accept load failed', e);
-      Alert.alert('Error', 'Failed to accept load. Please try again.');
-    }
-  };
-
-  const handleLoadOfferDismiss = (id: string) => {
-    setLoadOffer(null);
-  };
-
-  const handleLoadOfferClose = () => {
-    setLoadOffer(null);
-  };
+  }, [navigation]);
 
   return (
     <View style={styles.container}>
-      <ActionProposalOverlay
-        visible={!!actionProposal}
-        summaryText={actionProposal?.summaryText ?? ''}
-        loadId={actionProposal?.loadId ?? ''}
-        oneBasedIndex={actionProposal?.oneBasedIndex ?? null}
-        expiresAt={actionProposal?.expiresAt ?? null}
-        onConfirm={() => {
-          setActionProposal(null);
-          void redisService.publishVoiceConfirmation(userId, 'confirm');
-        }}
-        onReject={() => {
-          setActionProposal(null);
-          void redisService.publishVoiceConfirmation(userId, 'reject');
-        }}
-      />
       <View style={styles.content}>
-        {activeRoute ? (
-          <Text style={styles.routeText}>
-            Route: {activeRoute.origin_city} → {activeRoute.dest_city}
-          </Text>
-        ) : (
-          <Text style={styles.routeText}>No active route</Text>
-        )}
+        {userName ? (
+          <Text style={styles.userLabel}>Logged in as {userName}</Text>
+        ) : null}
         <TouchableOpacity
           style={[
             styles.microphoneButton,
@@ -601,13 +426,6 @@ export default function DriveScreen({ navigation, route }: Props) {
           </View>
         )}
       </View>
-      <LoadOfferCard
-        visible={!!loadOffer}
-        load={loadOffer}
-        onAccept={handleLoadOfferAccept}
-        onDismiss={handleLoadOfferDismiss}
-        onClose={handleLoadOfferClose}
-      />
     </View>
   );
 }
@@ -622,6 +440,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  userLabel: {
+    position: 'absolute',
+    top: 24,
+    fontSize: 14,
+    color: '#888888',
   },
   microphoneButton: {
     width: 120,
@@ -639,11 +463,6 @@ const styles = StyleSheet.create({
   },
   microphoneIcon: {
     fontSize: 48,
-  },
-  routeText: {
-    fontSize: 14,
-    color: '#888888',
-    marginBottom: 16,
   },
   statusText: {
     marginTop: 24,

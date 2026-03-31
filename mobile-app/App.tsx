@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
+import RegisterScreen from './src/screens/RegisterScreen';
 import DriveScreen from './src/screens/DriveScreen';
 import SubscriptionPricesScreen from './src/screens/SubscriptionPricesScreen';
 import NavigationScreen from './src/screens/NavigationScreen';
@@ -23,7 +24,8 @@ try {
 
 export type RootStackParamList = {
   Login: undefined;
-  Drive: { userId?: string };
+  Register: undefined;
+  Drive: { userId?: string; userName?: string };
   SubscriptionPrices: undefined;
   RouteSetup: { userId?: string };
   Navigation: { originQuery: string; destQuery: string };
@@ -56,6 +58,13 @@ export default function App() {
             component={LoginScreen}
             options={{
               title: 'Login',
+            }}
+          />
+          <Stack.Screen
+            name="Register"
+            component={RegisterScreen}
+            options={{
+              title: 'Register',
             }}
           />
           <Stack.Screen

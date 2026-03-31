@@ -66,7 +66,16 @@ VibeDrive.Api/
 
 ### 2. Configuration
 
-Update `appsettings.json`:
+**OpenAI API key (local or droplet):**
+
+- **Option A – file (not in Git):** Copy the example and set your key:
+  ```bash
+  cp appsettings.Development.local.json.example appsettings.Development.local.json
+  ```
+  Edit `appsettings.Development.local.json` and set `OpenAI:ApiKey` to your key. This file is gitignored.
+- **Option B – environment:** Set `OPENAI_API_KEY` (overrides config).
+
+**Other settings:** update `appsettings.json`:
 ```json
 {
   "Redis": {
