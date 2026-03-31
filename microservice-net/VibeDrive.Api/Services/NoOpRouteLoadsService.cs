@@ -3,6 +3,7 @@ using VibeDrive.Api.Models;
 
 namespace VibeDrive.Api.Services;
 
+[Obsolete("Replaced by RouteLoadsService. Kept temporarily for reference.")]
 public class NoOpRouteLoadsService : IRouteLoadsService
 {
     public Task<ActiveRouteDto?> GetActiveRouteAsync(string driverId, CancellationToken cancellationToken = default)

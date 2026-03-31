@@ -14,6 +14,11 @@ public class OpenAIService : IOpenAIService
     private const string ChatUrl = "https://api.openai.com/v1/chat/completions";
     private const string SpeechUrl = "https://api.openai.com/v1/audio/speech";
 
+    private static readonly JsonSerializerOptions RouteSetupJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public OpenAIService(string apiKey, ILogger<OpenAIService> logger, HttpClient httpClient)
     {
         _apiKey = apiKey;
@@ -350,6 +355,116 @@ Always respond with valid JSON only, no other text. For accept_load always inclu
             _logger.LogError(ex, "Failed to generate speech - Text: {Text}", text);
             return null;
         }
+    }
+
+    public async Task<RouteSetupParseDto?> ParseRouteSetupFromTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(_apiKey))
+        {
+            _logger.LogWarning("OpenAI API key is not configured. Skipping route setup parse.");
+            return null;
+        }
+
+        try
+        {
+            var systemPrompt = @"You extract freight route setup from free-form user text for a driving app.
+Respond with ONLY a single JSON object (no markdown, no explanation) with exactly these keys:
+- dest_city: string or null — primary destination city name; include country only if needed to disambiguate.
+- weight_kg: number or null — total capacity in kilograms; convert from tons (×1000), pounds (×0.453592), etc.
+- volume_m3: number or null — total volume in cubic meters; convert from cubic feet (×0.0283168), liters (÷1000), etc.
+- ai_message: string or null — one short sentence for the user: what you inferred, what is missing, or caveats; null or empty if nothing useful.
+
+Use JSON null for unknown numeric or city values. Do not use empty string for numbers.";
+
+            var requestBody = new
+            {
+                model = "gpt-4o-mini",
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = text }
+                },
+                temperature = 0.2,
+                max_tokens = 300
+            };
+
+            var jsonContent = JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+            _httpClient.DefaultRequestHeaders.Clear();
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+
+            var response = await _httpClient.PostAsync(ChatUrl, content, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("OpenAI Chat API returned error - Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+                return null;
+            }
+
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var responseJson = JsonDocument.Parse(responseContent);
+
+            if (!responseJson.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+            {
+                _logger.LogWarning("OpenAI Chat API response missing choices. Response: {Response}", responseContent);
+                return null;
+            }
+
+            var rawMessage = choices[0].GetProperty("message").GetProperty("content").GetString();
+            if (string.IsNullOrWhiteSpace(rawMessage))
+            {
+                _logger.LogWarning("OpenAI route setup parse returned empty content");
+                return null;
+            }
+
+            var trimmed = TrimJsonMarkdown(rawMessage);
+            RouteSetupParseDto? dto;
+            try
+            {
+                dto = JsonSerializer.Deserialize<RouteSetupParseDto>(trimmed, RouteSetupJsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to deserialize route setup JSON: {Content}", trimmed);
+                return null;
+            }
+
+            if (dto == null)
+            {
+                return null;
+            }
+
+            _logger.LogInformation("Route setup parsed from text");
+            return dto;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to parse route setup from text");
+            return null;
+        }
+    }
+
+    private static string TrimJsonMarkdown(string content)
+    {
+        var s = content.Trim();
+        if (s.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstNl = s.IndexOf('\n');
+            if (firstNl >= 0)
+            {
+                s = s[(firstNl + 1)..];
+            }
+
+            var end = s.LastIndexOf("```", StringComparison.Ordinal);
+            if (end >= 0)
+            {
+                s = s[..end];
+            }
+        }
+
+        return s.Trim();
     }
 }
 

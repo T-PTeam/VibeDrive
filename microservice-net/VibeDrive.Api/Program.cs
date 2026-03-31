@@ -1,6 +1,4 @@
 using StackExchange.Redis;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using VibeDrive.Api.Hubs;
 using VibeDrive.Api.Interfaces;
 using VibeDrive.Api.Services;
@@ -11,17 +9,6 @@ builder.Services.Configure<HostOptions>(options =>
 {
     options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
 });
-
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
-    });
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
@@ -114,12 +101,6 @@ else
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
 var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "";
 if (!string.IsNullOrEmpty(urls) && urls.Contains("https://"))
 {
@@ -129,8 +110,6 @@ if (!string.IsNullOrEmpty(urls) && urls.Contains("https://"))
 app.UseStaticFiles();
 
 app.UseCors("AllowMobileApp");
-
-app.MapControllers();
 
 app.MapHub<DriverHub>("/driverhub");
 

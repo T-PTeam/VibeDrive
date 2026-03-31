@@ -180,6 +180,52 @@ export default function DriveScreen({ navigation, route }: Props) {
         }
       });
 
+      signalRService.onMessage('accept_load', async (_message, parsed) => {
+        const index =
+          typeof parsed?.data?.index === 'number'
+            ? parsed.data.index
+            : Number(parsed?.index ?? parsed?.data?.index);
+        if (!Number.isFinite(index) || index < 1) {
+          return;
+        }
+
+        const loads = await loadsService.getProposedLoads(userId);
+        const load = loads[index - 1];
+        if (!load?.id) {
+          Speech.stop();
+          Speech.speak("I couldn't find that load option.", {
+            language: 'en-US',
+            pitch: 1.05,
+            rate: 0.92,
+            volume: 1.0,
+          });
+          return;
+        }
+
+        const newRoute = await loadsService.acceptLoad(userId, load.id);
+        if (newRoute) {
+          setActiveRoute(newRoute);
+          Speech.stop();
+          Speech.speak(
+            `Accepted load ${index}. Your route is now ${newRoute.origin_city} to ${newRoute.dest_city}.`,
+            {
+              language: 'en-US',
+              pitch: 1.05,
+              rate: 0.92,
+              volume: 1.0,
+            }
+          );
+        } else {
+          Speech.stop();
+          Speech.speak('Failed to accept that load. Please try again.', {
+            language: 'en-US',
+            pitch: 1.05,
+            rate: 0.92,
+            volume: 1.0,
+          });
+        }
+      });
+
       signalRService.onMessage('ai_response', async (message, parsed) => {
         logger.info('DriveScreen', 'Received AI response', {
           message,
@@ -314,10 +360,18 @@ export default function DriveScreen({ navigation, route }: Props) {
 
         if (result) {
           logger.info('DriveScreen', 'Recording stopped', result);
+          const [activeRoute, proposedLoads] = await Promise.all([
+            loadsService.getActiveRoute(userId),
+            loadsService.getProposedLoads(userId),
+          ]);
           const success = await redisService.publishAudioRecording(
             userId,
             result.uri,
-            result.duration
+            result.duration,
+            {
+              active_route: activeRoute,
+              proposed_loads: proposedLoads,
+            }
           );
 
           if (!success) {
@@ -356,6 +410,17 @@ export default function DriveScreen({ navigation, route }: Props) {
 
   const handleRouteSetup = () => {
     navigation.navigate('RouteSetup', { userId });
+  };
+
+  const handleNavigate = () => {
+    if (!activeRoute) {
+      Alert.alert('Navigation', 'Set a route first.');
+      return;
+    }
+    navigation.navigate('Navigation', {
+      originQuery: activeRoute.origin_city,
+      destQuery: activeRoute.dest_city,
+    });
   };
 
   const handleConnectLED = async () => {
@@ -433,6 +498,13 @@ export default function DriveScreen({ navigation, route }: Props) {
             onPress={handleRouteSetup}
           >
             <Text style={styles.headerButtonText}>Route</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={handleNavigate}
+            disabled={!activeRoute}
+          >
+            <Text style={styles.headerButtonText}>Navigate</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}

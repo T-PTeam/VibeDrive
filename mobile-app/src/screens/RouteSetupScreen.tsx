@@ -7,11 +7,14 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import { loadsService } from '../services/LoadsService';
+import { routeSetupParseService } from '../services/RouteSetupParseService';
+import { applyRouteSetupParseResult } from '../features/routeSetup/utils/applyRouteSetupParseResult';
 
 type RouteSetupScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -25,11 +28,42 @@ interface Props {
 }
 
 export default function RouteSetupScreen({ navigation, route }: Props) {
+  const [description, setDescription] = useState('');
   const [city, setCity] = useState('');
   const [weight, setWeight] = useState('');
   const [volume, setVolume] = useState('');
   const [loading, setLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiHint, setAiHint] = useState('');
   const userId = route.params?.userId ?? 'driver123';
+
+  const handleFillWithAi = async () => {
+    if (!description.trim()) {
+      Alert.alert('Error', 'Enter a description to fill with AI');
+      return;
+    }
+    setAiLoading(true);
+    setAiHint('');
+    try {
+      const parsed = await routeSetupParseService.parseRouteSetup(description);
+      if (!parsed) {
+        Alert.alert(
+          'Error',
+          'Could not fill fields. Check your connection and that the API is running.'
+        );
+        return;
+      }
+      applyRouteSetupParseResult({
+        parsed,
+        setCity,
+        setWeight,
+        setVolume,
+        setAiHint,
+      });
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const handleStartMonitoring = async () => {
     if (!city.trim()) {
@@ -72,8 +106,38 @@ export default function RouteSetupScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.form}>
+          <Text style={styles.label}>Describe route (optional)</Text>
+          <TextInput
+            style={styles.inputMultiline}
+            placeholder="e.g. Delivery to Berlin, 12 tons, about 90 cubic meters"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            textAlignVertical="top"
+            autoCorrect
+          />
+          <TouchableOpacity
+            style={[
+              styles.secondaryButton,
+              (aiLoading || !description.trim()) &&
+                styles.secondaryButtonDisabled,
+            ]}
+            onPress={handleFillWithAi}
+            disabled={aiLoading || !description.trim()}
+          >
+            {aiLoading ? (
+              <ActivityIndicator color="#000000" />
+            ) : (
+              <Text style={styles.secondaryButtonText}>Fill with AI</Text>
+            )}
+          </TouchableOpacity>
+          {aiHint ? <Text style={styles.aiHint}>{aiHint}</Text> : null}
           <Text style={styles.label}>City</Text>
           <TextInput
             style={styles.input}
@@ -111,7 +175,7 @@ export default function RouteSetupScreen({ navigation, route }: Props) {
             )}
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -121,9 +185,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
-  content: {
+  scroll: {
     flex: 1,
+  },
+  content: {
+    flexGrow: 1,
     padding: 24,
+    paddingBottom: 40,
   },
   form: {
     width: '100%',
@@ -143,6 +211,42 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     fontSize: 16,
     backgroundColor: '#ffffff',
+  },
+  inputMultiline: {
+    minHeight: 100,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    marginBottom: 12,
+    fontSize: 16,
+    backgroundColor: '#ffffff',
+  },
+  secondaryButton: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    backgroundColor: '#ffffff',
+  },
+  secondaryButtonDisabled: {
+    opacity: 0.45,
+  },
+  secondaryButtonText: {
+    color: '#000000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  aiHint: {
+    fontSize: 14,
+    color: '#555555',
+    marginBottom: 20,
+    lineHeight: 20,
   },
   button: {
     height: 50,

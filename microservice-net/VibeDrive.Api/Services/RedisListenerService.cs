@@ -257,6 +257,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
 
             var audioBase64 = dataObj["audio_base64"]?.ToString();
             var filename = dataObj["filename"]?.ToString() ?? "recording.m4a";
+            var context = TryExtractContext(dataObj);
 
             if (string.IsNullOrEmpty(audioBase64))
             {
@@ -276,7 +277,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
                 _logger.LogInformation("Audio transcription completed for user {UserId} - Transcription: {Transcription}", 
                     message.UserId, transcription);
 
-                await ProcessTranscriptionAsync(message.UserId, transcription, cancellationToken);
+                await ProcessTranscriptionAsync(message.UserId, transcription, context, cancellationToken);
             }
             else
             {
@@ -289,7 +290,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
         }
     }
 
-    private async Task ProcessTranscriptionAsync(string userId, string transcription, CancellationToken cancellationToken)
+    private async Task ProcessTranscriptionAsync(string userId, string transcription, RouteLoadsContext context, CancellationToken cancellationToken)
     {
         if (_openAIService == null)
         {
@@ -298,7 +299,6 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
 
         try
         {
-            var context = await _routeLoadsService.GetContextAsync(userId, cancellationToken);
             string? commandJson = await _openAIService.ProcessTranscriptionWithContextAsync(transcription, context, cancellationToken);
 
             if (string.IsNullOrEmpty(commandJson))
@@ -347,15 +347,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
             }
             if (normalizedAction == "accept_load" && index.HasValue && index.Value >= 1)
             {
-                var newRoute = await _routeLoadsService.AcceptLoadByIndexAsync(userId, index.Value, cancellationToken);
-                if (newRoute != null)
-                {
-                    await SendTtsMessageAsync(userId, $"Accepted load {index}. Your route is now {newRoute.OriginCity} to {newRoute.DestCity}.", cancellationToken);
-                }
-                else
-                {
-                    await SendTtsMessageAsync(userId, "Could not find that load. Please try again.", cancellationToken);
-                }
+                await SendAcceptLoadCommandAsync(userId, index.Value, cancellationToken);
                 return;
             }
 
@@ -371,6 +363,66 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process transcription for user {UserId}", userId);
+        }
+    }
+
+    private async Task SendAcceptLoadCommandAsync(string userId, int oneBasedIndex, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = new
+            {
+                type = "accept_load",
+                data = new
+                {
+                    index = oneBasedIndex
+                },
+                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            };
+            var messageJson = JsonSerializer.Serialize(payload);
+            await _hubContext.Clients.Group(userId).SendAsync("ReceiveMessage", messageJson, cancellationToken);
+            _logger.LogInformation("Sent accept_load command to user {UserId} (index {Index})", userId, oneBasedIndex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send accept_load command to user {UserId}", userId);
+        }
+    }
+
+    private static RouteLoadsContext TryExtractContext(JsonObject dataObj)
+    {
+        try
+        {
+            var ctx = new RouteLoadsContext();
+
+            var activeRouteNode = dataObj["active_route"];
+            if (activeRouteNode != null)
+            {
+                var activeRoute = activeRouteNode.Deserialize<ActiveRouteDto>(new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                ctx.ActiveRoute = activeRoute;
+            }
+
+            var proposedLoadsNode = dataObj["proposed_loads"];
+            if (proposedLoadsNode != null)
+            {
+                var loads = proposedLoadsNode.Deserialize<List<FreightLoadDto>>(new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                if (loads != null)
+                {
+                    ctx.ProposedLoads = loads;
+                }
+            }
+
+            return ctx;
+        }
+        catch
+        {
+            return new RouteLoadsContext();
         }
     }
 
