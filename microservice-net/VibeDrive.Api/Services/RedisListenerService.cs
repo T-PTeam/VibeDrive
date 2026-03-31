@@ -1,7 +1,8 @@
-using StackExchange.Redis;
-using Microsoft.AspNetCore.SignalR;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.SignalR;
+using StackExchange.Redis;
 using VibeDrive.Api.Hubs;
 using VibeDrive.Api.Interfaces;
 using VibeDrive.Api.Models;
@@ -15,6 +16,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
     private readonly ILogger<RedisListenerService> _logger;
     private readonly IOpenAIService? _openAIService;
     private readonly IRouteLoadsService _routeLoadsService;
+    private readonly IPendingActionStore _pendingActionStore;
     private ISubscriber? _subscriber;
     private const int MaxRetryDelay = 30000;
     private const int InitialRetryDelay = 1000;
@@ -24,12 +26,14 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
         IHubContext<DriverHub> hubContext,
         ILogger<RedisListenerService> logger,
         IRouteLoadsService routeLoadsService,
+        IPendingActionStore pendingActionStore,
         IOpenAIService? openAIService = null)
     {
         _redis = redis;
         _hubContext = hubContext;
         _logger = logger;
         _routeLoadsService = routeLoadsService;
+        _pendingActionStore = pendingActionStore;
         _openAIService = openAIService;
     }
 
@@ -161,6 +165,22 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
 
         LogMessageReadable(driverMessage);
 
+        if (string.Equals(driverMessage.Type, "voice_confirmation", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await ProcessVoiceConfirmationAsync(driverMessage, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "voice_confirmation failed for user {UserId}", driverMessage.UserId);
+                }
+            }, cancellationToken);
+            return;
+        }
+
         if (driverMessage.Type == "audio_recording" && _openAIService != null)
         {
             _ = Task.Run(async () =>
@@ -257,6 +277,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
 
             var audioBase64 = dataObj["audio_base64"]?.ToString();
             var filename = dataObj["filename"]?.ToString() ?? "recording.m4a";
+            var context = TryExtractContext(dataObj);
 
             if (string.IsNullOrEmpty(audioBase64))
             {
@@ -276,7 +297,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
                 _logger.LogInformation("Audio transcription completed for user {UserId} - Transcription: {Transcription}", 
                     message.UserId, transcription);
 
-                await ProcessTranscriptionAsync(message.UserId, transcription, cancellationToken);
+                await ProcessTranscriptionAsync(message.UserId, transcription, context, cancellationToken);
             }
             else
             {
@@ -289,7 +310,7 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
         }
     }
 
-    private async Task ProcessTranscriptionAsync(string userId, string transcription, CancellationToken cancellationToken)
+    private async Task ProcessTranscriptionAsync(string userId, string transcription, RouteLoadsContext mobileContext, CancellationToken cancellationToken)
     {
         if (_openAIService == null)
         {
@@ -298,8 +319,12 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
 
         try
         {
-            var context = await _routeLoadsService.GetContextAsync(userId, cancellationToken);
-            string? commandJson = await _openAIService.ProcessTranscriptionWithContextAsync(transcription, context, cancellationToken);
+            var serverContext = await _routeLoadsService.GetContextAsync(userId, cancellationToken);
+            var merged = MergeContexts(serverContext, mobileContext);
+            var pendingSnapshot = await _pendingActionStore.GetAsync(userId, cancellationToken);
+            merged.PendingAction = pendingSnapshot;
+
+            string? commandJson = await _openAIService.ProcessTranscriptionWithContextAsync(transcription, merged, cancellationToken);
 
             if (string.IsNullOrEmpty(commandJson))
             {
@@ -313,18 +338,20 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
             }
 
             var commandDoc = JsonDocument.Parse(commandJson);
-            var action = commandDoc.RootElement.TryGetProperty("action", out var actionElement)
-                ? actionElement.GetString()
-                : null;
-            var query = commandDoc.RootElement.TryGetProperty("query", out var queryElement)
-                ? queryElement.GetString()
-                : null;
-            var index = commandDoc.RootElement.TryGetProperty("index", out var indexElement) && indexElement.ValueKind == JsonValueKind.Number
-                ? indexElement.GetInt32()
-                : (int?)null;
+            var root = commandDoc.RootElement;
+            var action = root.TryGetProperty("action", out var actionElement) ? actionElement.GetString() : null;
+            var query = root.TryGetProperty("query", out var queryElement) ? queryElement.GetString() : null;
+            var index = TryGetInt(root, "index");
+            var loadIndex = TryGetInt(root, "load_index") ?? index;
+            var proposalMessage = TryGetString(root, "message");
+            var destCity = TryGetString(root, "dest_city");
+            var weightKg = TryGetDecimal(root, "weight_kg");
+            var volumeM3 = TryGetDecimal(root, "volume_m3");
+            var originCity = TryGetString(root, "origin_city");
 
-            _logger.LogInformation("Processed transcription command - UserId: {UserId}, Action: {Action}, Query: {Query}, Index: {Index}",
-                userId, action, query, index);
+            _logger.LogInformation(
+                "Processed transcription command - UserId: {UserId}, Action: {Action}, Query: {Query}, LoadIndex: {LoadIndex}",
+                userId, action, query, loadIndex);
 
             var normalizedAction = action?.Trim().ToLowerInvariant();
             var normalizedQuery = query?.Trim();
@@ -335,27 +362,52 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
                 normalizedQuery = normalizedTranscription;
             }
 
-            if (normalizedAction == "list_loads")
+            if (normalizedAction == "confirm")
             {
-                await SendListLoadsTtsAsync(userId, context, cancellationToken);
+                await HandleConfirmAsync(userId, cancellationToken);
                 return;
             }
+
+            if (normalizedAction == "reject")
+            {
+                await HandleRejectAsync(userId, cancellationToken);
+                return;
+            }
+
+            if (normalizedAction == "list_loads" || normalizedAction == "search_loads")
+            {
+                await SendListLoadsTtsAsync(userId, merged, cancellationToken);
+                return;
+            }
+
             if (normalizedAction == "list_route")
             {
-                await SendListRouteTtsAsync(userId, context, cancellationToken);
+                await SendListRouteTtsAsync(userId, merged, cancellationToken);
                 return;
             }
-            if (normalizedAction == "accept_load" && index.HasValue && index.Value >= 1)
+
+            if (normalizedAction == "propose_accept_load" || normalizedAction == "accept_load")
             {
-                var newRoute = await _routeLoadsService.AcceptLoadByIndexAsync(userId, index.Value, cancellationToken);
-                if (newRoute != null)
+                if (loadIndex.HasValue && loadIndex.Value >= 1)
                 {
-                    await SendTtsMessageAsync(userId, $"Accepted load {index}. Your route is now {newRoute.OriginCity} to {newRoute.DestCity}.", cancellationToken);
+                    await HandleProposeAcceptLoadAsync(userId, merged, loadIndex.Value, proposalMessage, cancellationToken);
                 }
-                else
-                {
-                    await SendTtsMessageAsync(userId, "Could not find that load. Please try again.", cancellationToken);
-                }
+
+                return;
+            }
+
+            if (normalizedAction == "set_route" || normalizedAction == "update_route")
+            {
+                await HandleSetRouteAsync(userId, destCity, weightKg, volumeM3, originCity, cancellationToken);
+                return;
+            }
+
+            if (normalizedAction == "update_cargo_status")
+            {
+                await SendTtsMessageAsync(
+                    userId,
+                    "Cargo status updates are not available yet. You can ask about your route or loads.",
+                    cancellationToken);
                 return;
             }
 
@@ -374,19 +426,325 @@ public class RedisListenerService : BackgroundService, IRedisListenerService
         }
     }
 
-    private async Task SendTtsMessageAsync(string userId, string message, CancellationToken cancellationToken)
+    private async Task ProcessVoiceConfirmationAsync(DriverUpdateMessage message, CancellationToken cancellationToken)
+    {
+        if (message.Data == null)
+        {
+            return;
+        }
+
+        var dataNode = JsonNode.Parse(JsonSerializer.Serialize(message.Data));
+        var dataObj = dataNode?.AsObject();
+        var choice = dataObj?["choice"]?.ToString()?.Trim().ToLowerInvariant();
+        if (choice == "confirm")
+        {
+            await HandleConfirmAsync(message.UserId, cancellationToken);
+        }
+        else if (choice == "reject")
+        {
+            await HandleRejectAsync(message.UserId, cancellationToken);
+        }
+    }
+
+    private async Task HandleConfirmAsync(string userId, CancellationToken cancellationToken)
+    {
+        var pending = await _pendingActionStore.GetAsync(userId, cancellationToken);
+        if (pending == null)
+        {
+            await SendTtsMessageAsync(userId, "Nothing to confirm.", cancellationToken);
+            return;
+        }
+
+        if (pending.Type == "accept_load")
+        {
+            ActiveRouteDto? route = null;
+            if (!string.IsNullOrEmpty(pending.LoadId))
+            {
+                route = await _routeLoadsService.AcceptLoadByIdAsync(userId, pending.LoadId, cancellationToken);
+            }
+
+            if (route == null && pending.OneBasedIndex is int idx && idx >= 1)
+            {
+                route = await _routeLoadsService.AcceptLoadByIndexAsync(userId, idx, cancellationToken);
+            }
+
+            await _pendingActionStore.ClearAsync(userId, cancellationToken);
+            if (route != null)
+            {
+                await SendTtsMessageAsync(
+                    userId,
+                    $"Load accepted. Your route is now {route.OriginCity} to {route.DestCity}.",
+                    cancellationToken,
+                    route);
+            }
+            else
+            {
+                await SendTtsMessageAsync(userId, "Could not accept that load. Please try again.", cancellationToken);
+            }
+
+            return;
+        }
+
+        await _pendingActionStore.ClearAsync(userId, cancellationToken);
+        await SendTtsMessageAsync(userId, "That action is not supported yet.", cancellationToken);
+    }
+
+    private async Task HandleRejectAsync(string userId, CancellationToken cancellationToken)
+    {
+        await _pendingActionStore.ClearAsync(userId, cancellationToken);
+        await SendTtsMessageAsync(
+            userId,
+            "Okay, cancelled. Say if you want to list loads or choose another option.",
+            cancellationToken);
+    }
+
+    private async Task HandleProposeAcceptLoadAsync(
+        string userId,
+        RouteLoadsContext merged,
+        int loadIndex,
+        string? proposalMessage,
+        CancellationToken cancellationToken)
+    {
+        var loadId = ResolveLoadId(merged, loadIndex);
+        RouteLoadsContext resolveContext = merged;
+        if (string.IsNullOrEmpty(loadId))
+        {
+            var refreshed = await _routeLoadsService.GetProposedLoadsAsync(userId, cancellationToken);
+            if (refreshed.Count > 0)
+            {
+                resolveContext = new RouteLoadsContext
+                {
+                    ActiveRoute = merged.ActiveRoute,
+                    ProposedLoads = refreshed
+                };
+                loadId = ResolveLoadId(resolveContext, loadIndex);
+            }
+        }
+
+        if (string.IsNullOrEmpty(loadId))
+        {
+            await SendTtsMessageAsync(userId, "I could not find that load. Try listing loads again.", cancellationToken);
+            return;
+        }
+
+        FreightLoadDto? load = null;
+        if (loadIndex >= 1 && loadIndex <= resolveContext.ProposedLoads.Count)
+        {
+            load = resolveContext.ProposedLoads[loadIndex - 1];
+        }
+
+        var summary = !string.IsNullOrWhiteSpace(proposalMessage)
+            ? proposalMessage.Trim()
+            : load != null
+                ? $"Load {loadIndex}: {load.OriginCity} to {load.DestCity}, {load.Currency} {load.RateAmount}."
+                : $"Load option {loadIndex}.";
+
+        var pending = new PendingAction
+        {
+            Type = "accept_load",
+            LoadId = loadId,
+            OneBasedIndex = loadIndex,
+            SummaryText = summary
+        };
+
+        await _pendingActionStore.SetAsync(userId, pending, cancellationToken);
+        await SendActionProposalAsync(userId, pending, cancellationToken);
+        var question = !string.IsNullOrWhiteSpace(proposalMessage)
+            ? proposalMessage.Trim()
+            : $"{summary} Do you want to accept this load? Say yes to confirm or no to cancel.";
+        await SendTtsMessageAsync(userId, question, cancellationToken);
+    }
+
+    private async Task HandleSetRouteAsync(
+        string userId,
+        string? destCity,
+        decimal? weightKg,
+        decimal? volumeM3,
+        string? originCity,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(destCity) || !weightKg.HasValue || !volumeM3.HasValue)
+        {
+            await SendTtsMessageAsync(
+                userId,
+                "I need a destination, weight in kilograms, and volume in cubic meters to set your route.",
+                cancellationToken);
+            return;
+        }
+
+        var route = await _routeLoadsService.StartMonitoringAsync(
+            userId,
+            destCity.Trim(),
+            weightKg.Value,
+            volumeM3.Value,
+            string.IsNullOrWhiteSpace(originCity) ? null : originCity.Trim(),
+            cancellationToken);
+
+        if (route != null)
+        {
+            await SendTtsMessageAsync(
+                userId,
+                $"Route set: monitoring {route.OriginCity} to {route.DestCity}.",
+                cancellationToken,
+                route);
+        }
+        else
+        {
+            await SendTtsMessageAsync(userId, "Could not update your route. Please try again.", cancellationToken);
+        }
+    }
+
+    private async Task SendActionProposalAsync(string userId, PendingAction pending, CancellationToken cancellationToken)
     {
         try
         {
+            var payload = new
+            {
+                type = "action_proposal",
+                data = new
+                {
+                    action_type = pending.Type,
+                    load_id = pending.LoadId,
+                    one_based_index = pending.OneBasedIndex,
+                    summary_text = pending.SummaryText,
+                    expires_at = pending.ExpiresAt?.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
+                },
+                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
+            };
+            var messageJson = JsonSerializer.Serialize(payload);
+            await _hubContext.Clients.Group(userId).SendAsync("ReceiveMessage", messageJson, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send action_proposal to user {UserId}", userId);
+        }
+    }
+
+    private static string? ResolveLoadId(RouteLoadsContext ctx, int loadIndex)
+    {
+        if (loadIndex < 1 || loadIndex > ctx.ProposedLoads.Count)
+        {
+            return null;
+        }
+
+        var id = ctx.ProposedLoads[loadIndex - 1].Id;
+        return string.IsNullOrEmpty(id) ? null : id;
+    }
+
+    private static int? TryGetInt(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el))
+        {
+            return null;
+        }
+
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var i))
+        {
+            return i;
+        }
+
+        if (el.ValueKind == JsonValueKind.String && int.TryParse(el.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var j))
+        {
+            return j;
+        }
+
+        return null;
+    }
+
+    private static decimal? TryGetDecimal(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el))
+        {
+            return null;
+        }
+
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetDecimal(out var d))
+        {
+            return d;
+        }
+
+        if (el.ValueKind == JsonValueKind.String &&
+            decimal.TryParse(el.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var p))
+        {
+            return p;
+        }
+
+        return null;
+    }
+
+    private static string? TryGetString(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return el.GetString();
+    }
+
+    private static RouteLoadsContext MergeContexts(RouteLoadsContext server, RouteLoadsContext mobile)
+    {
+        return new RouteLoadsContext
+        {
+            ActiveRoute = server.ActiveRoute ?? mobile.ActiveRoute,
+            ProposedLoads = server.ProposedLoads.Count > 0 ? server.ProposedLoads : mobile.ProposedLoads
+        };
+    }
+
+    private static RouteLoadsContext TryExtractContext(JsonObject dataObj)
+    {
+        try
+        {
+            var ctx = new RouteLoadsContext();
+
+            var activeRouteNode = dataObj["active_route"];
+            if (activeRouteNode != null)
+            {
+                var activeRoute = activeRouteNode.Deserialize<ActiveRouteDto>(new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                ctx.ActiveRoute = activeRoute;
+            }
+
+            var proposedLoadsNode = dataObj["proposed_loads"];
+            if (proposedLoadsNode != null)
+            {
+                var loads = proposedLoadsNode.Deserialize<List<FreightLoadDto>>(new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                if (loads != null)
+                {
+                    ctx.ProposedLoads = loads;
+                }
+            }
+
+            return ctx;
+        }
+        catch
+        {
+            return new RouteLoadsContext();
+        }
+    }
+
+    private async Task SendTtsMessageAsync(
+        string userId,
+        string message,
+        CancellationToken cancellationToken,
+        ActiveRouteDto? activeRoute = null)
+    {
+        try
+        {
+            object data = activeRoute != null
+                ? new { message, original_query = (string?)null, active_route = activeRoute }
+                : new { message, original_query = (string?)null };
+
             var responseMessage = new
             {
                 type = "ai_response",
-                data = new
-                {
-                    message,
-                    original_query = (string?)null
-                },
-                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                data,
+                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
             };
             var messageJson = JsonSerializer.Serialize(responseMessage);
             await _hubContext.Clients.Group(userId).SendAsync("ReceiveMessage", messageJson, cancellationToken);

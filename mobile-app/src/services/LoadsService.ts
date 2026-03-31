@@ -41,7 +41,9 @@ class LoadsService {
           typeof json === 'object' &&
           'message' in json &&
           typeof (json as { message?: string }).message === 'string' &&
-          (json as { message?: string }).message?.includes('could not be found');
+          (json as { message?: string }).message?.includes(
+            'could not be found'
+          );
         if (isGetRoute404 && !isLaravel404) {
           logger.debug('LoadsService', 'No active route', { path });
         } else if (isGetRoute404 && isLaravel404) {

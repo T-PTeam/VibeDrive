@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
 import DriveScreen from './src/screens/DriveScreen';
 import SubscriptionPricesScreen from './src/screens/SubscriptionPricesScreen';
+import NavigationScreen from './src/screens/NavigationScreen';
 import RouteSetupScreen from './src/screens/RouteSetupScreen';
 import { signalRService } from './src/services/SignalRService';
 import { loadsService } from './src/services/LoadsService';
@@ -25,6 +26,7 @@ export type RootStackParamList = {
   Drive: { userId?: string };
   SubscriptionPrices: undefined;
   RouteSetup: { userId?: string };
+  Navigation: { originQuery: string; destQuery: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -75,6 +77,13 @@ export default function App() {
             component={RouteSetupScreen}
             options={{
               title: 'Route Setup',
+            }}
+          />
+          <Stack.Screen
+            name="Navigation"
+            component={NavigationScreen}
+            options={{
+              title: 'Navigation',
             }}
           />
         </Stack.Navigator>

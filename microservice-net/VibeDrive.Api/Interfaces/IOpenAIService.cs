@@ -9,6 +9,7 @@ public interface IOpenAIService
     Task<string?> ProcessTranscriptionWithContextAsync(string transcription, RouteLoadsContext context, CancellationToken cancellationToken = default);
     Task<string?> GenerateResponseAsync(string userMessage, CancellationToken cancellationToken = default);
     Task<byte[]?> GenerateSpeechAsync(string text, CancellationToken cancellationToken = default);
+    Task<RouteSetupParseDto?> ParseRouteSetupFromTextAsync(string text, CancellationToken cancellationToken = default);
 }
 
 public class TranscriptionCommand

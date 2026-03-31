@@ -68,6 +68,8 @@ import { redisService } from '../services/RedisService';
 import { spotifyService } from '../services/SpotifyService';
 import { ledController } from '../services/LEDController';
 import LoadOfferCard, { LoadOfferPayload } from '../components/LoadOfferCard';
+import ActionProposalOverlay from '../features/voice-assistant/components/ActionProposalOverlay';
+import { coerceActiveRoute } from '../features/voice-assistant/utils/coerceActiveRoute';
 import { loadsService } from '../services/LoadsService';
 import { locationService } from '../services/LocationService';
 import type { ActiveRouteDto } from '../types/loads';
@@ -97,6 +99,12 @@ export default function DriveScreen({ navigation, route }: Props) {
   const [spotifyTesting, setSpotifyTesting] = useState(false);
   const [loadOffer, setLoadOffer] = useState<LoadOfferPayload | null>(null);
   const [activeRoute, setActiveRoute] = useState<ActiveRouteDto | null>(null);
+  const [actionProposal, setActionProposal] = useState<{
+    summaryText: string;
+    loadId: string;
+    oneBasedIndex: number | null;
+    expiresAt: string | null;
+  } | null>(null);
   const userId = route.params?.userId || 'driver123';
 
   const fetchActiveRoute = useCallback(async () => {
@@ -180,6 +188,21 @@ export default function DriveScreen({ navigation, route }: Props) {
         }
       });
 
+      signalRService.onMessage('action_proposal', (_message, parsed) => {
+        const d = parsed?.data;
+        if (!d || typeof d !== 'object') {
+          return;
+        }
+        const rec = d as Record<string, unknown>;
+        const ob = rec.one_based_index;
+        setActionProposal({
+          summaryText: String(rec.summary_text ?? ''),
+          loadId: String(rec.load_id ?? ''),
+          oneBasedIndex: typeof ob === 'number' ? ob : null,
+          expiresAt: rec.expires_at ? String(rec.expires_at) : null,
+        });
+      });
+
       signalRService.onMessage('ai_response', async (message, parsed) => {
         logger.info('DriveScreen', 'Received AI response', {
           message,
@@ -206,6 +229,27 @@ export default function DriveScreen({ navigation, route }: Props) {
           } catch (error) {
             logger.error('DriveScreen', 'Failed to speak AI response', error);
             Alert.alert('AI Assistant', aiMessage);
+          }
+        }
+
+        const arRaw = parsed?.data?.active_route;
+        if (arRaw) {
+          const coerced = coerceActiveRoute(arRaw);
+          if (coerced) {
+            setActiveRoute(coerced);
+          }
+        }
+
+        if (aiMessage) {
+          const lower = aiMessage.toLowerCase();
+          if (
+            arRaw ||
+            lower.includes('nothing to confirm') ||
+            lower.includes('load accepted') ||
+            lower.includes('could not accept') ||
+            lower.includes('okay, cancelled')
+          ) {
+            setActionProposal(null);
           }
         }
 
@@ -278,6 +322,7 @@ export default function DriveScreen({ navigation, route }: Props) {
     return () => {
       signalRService.removeMessageHandler('play_music');
       signalRService.removeMessageHandler('ai_response');
+      signalRService.removeMessageHandler('action_proposal');
       signalRService.removeMessageHandler('LoadOffer');
       signalRService.disconnect();
       if (audioRecordingService.getIsRecording()) {
@@ -314,10 +359,18 @@ export default function DriveScreen({ navigation, route }: Props) {
 
         if (result) {
           logger.info('DriveScreen', 'Recording stopped', result);
+          const [activeRoute, proposedLoads] = await Promise.all([
+            loadsService.getActiveRoute(userId),
+            loadsService.getProposedLoads(userId),
+          ]);
           const success = await redisService.publishAudioRecording(
             userId,
             result.uri,
-            result.duration
+            result.duration,
+            {
+              active_route: activeRoute,
+              proposed_loads: proposedLoads,
+            }
           );
 
           if (!success) {
@@ -356,6 +409,17 @@ export default function DriveScreen({ navigation, route }: Props) {
 
   const handleRouteSetup = () => {
     navigation.navigate('RouteSetup', { userId });
+  };
+
+  const handleNavigate = () => {
+    if (!activeRoute) {
+      Alert.alert('Navigation', 'Set a route first.');
+      return;
+    }
+    navigation.navigate('Navigation', {
+      originQuery: activeRoute.origin_city,
+      destQuery: activeRoute.dest_city,
+    });
   };
 
   const handleConnectLED = async () => {
@@ -436,6 +500,13 @@ export default function DriveScreen({ navigation, route }: Props) {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerButton}
+            onPress={handleNavigate}
+            disabled={!activeRoute}
+          >
+            <Text style={styles.headerButtonText}>Navigate</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
             onPress={handleViewPrices}
           >
             <Text style={styles.headerButtonText}>Subscription</Text>
@@ -482,6 +553,21 @@ export default function DriveScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
+      <ActionProposalOverlay
+        visible={!!actionProposal}
+        summaryText={actionProposal?.summaryText ?? ''}
+        loadId={actionProposal?.loadId ?? ''}
+        oneBasedIndex={actionProposal?.oneBasedIndex ?? null}
+        expiresAt={actionProposal?.expiresAt ?? null}
+        onConfirm={() => {
+          setActionProposal(null);
+          void redisService.publishVoiceConfirmation(userId, 'confirm');
+        }}
+        onReject={() => {
+          setActionProposal(null);
+          void redisService.publishVoiceConfirmation(userId, 'reject');
+        }}
+      />
       <View style={styles.content}>
         {activeRoute ? (
           <Text style={styles.routeText}>

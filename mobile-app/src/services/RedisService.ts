@@ -1,5 +1,5 @@
 import { logger } from './LoggerService';
-import { getApiUrl } from '../config/api';
+import { getPhpApiUrl } from '../config/api';
 import * as FileSystem from 'expo-file-system/legacy';
 
 interface RedisMessage {
@@ -93,10 +93,23 @@ class RedisService {
     }
   }
 
+  async publishVoiceConfirmation(
+    userId: string,
+    choice: 'confirm' | 'reject'
+  ): Promise<boolean> {
+    const message: RedisMessage = {
+      userId,
+      type: 'voice_confirmation',
+      data: { choice },
+      timestamp: new Date().toISOString(),
+    };
+    return this.publishToRedis(message);
+  }
+
   private async publishToRedis(message: RedisMessage): Promise<boolean> {
     try {
-      const apiUrl = getApiUrl();
-      const url = `${apiUrl}/api/v1/redis/publish`;
+      const apiUrl = getPhpApiUrl();
+      const url = `${apiUrl}/v1/redis/publish`;
 
       logger.debug('RedisService', 'Sending request to API', { url });
 
@@ -147,7 +160,7 @@ class RedisService {
       logger.error('RedisService', 'Failed to publish to Redis', error, {
         message: error?.message,
         stack: error?.stack,
-        url: `${getApiUrl()}/api/v1/redis/publish`,
+        url: `${getPhpApiUrl()}/v1/redis/publish`,
       });
       return false;
     }
