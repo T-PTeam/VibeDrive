@@ -5,13 +5,12 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "scheme": "vibedrive",
     "splash": {
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vibedrive.mobile",
@@ -19,48 +18,43 @@
         "NSMicrophoneUsageDescription": "VD needs access to your microphone to record voice commands while driving.",
         "NSBluetoothAlwaysUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
         "NSBluetoothPeripheralUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
-        "LSApplicationQueriesSchemes": [
-          "spotify",
-          "spotify"
-        ],
-        "ITSAppUsesNonExemptEncryption": false
+        "LSApplicationQueriesSchemes": ["spotify", "spotify"],
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "VibeDrive uses your location for turn-by-turn navigation and the map."
       }
     },
     "android": {
-      "android": {
-        "adaptiveIcon": {
-          "foregroundImage": "./assets/android/play_store_512.png",
-          "backgroundColor": "#000000"
-        },
-        "package": "com.vibedrive.mobile",
-        "permissions": [
-          "RECORD_AUDIO",
-          "BLUETOOTH",
-          "BLUETOOTH_ADMIN",
-          "BLUETOOTH_SCAN",
-          "BLUETOOTH_CONNECT",
-          "ACCESS_FINE_LOCATION"
-        ]
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android/play_store_512.png",
+        "backgroundColor": "#000000"
       },
-      "web": {},
-      "scheme": "vibedrive",
-      "privacyPolicyUrl": "https://vibe-drive.store/privacy",
-      "extra": {
-        "eas": {
-          "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"
-        },
-        "termsOfUseUrl": "https://vibe-drive.store/terms"
-      },
-      "plugins": [
-        "expo-secure-store",
-        "expo-iap"
-      ],
-      "package": "com.vibedrive.mobile"
+      "package": "com.vibedrive.mobile",
+      "permissions": [
+        "RECORD_AUDIO",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
+    "web": {},
+    "plugins": [
+      "expo-secure-store",
+      "expo-iap",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "VibeDrive uses your location for turn-by-turn navigation and the map."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"
-      }
+      },
+      "termsOfUseUrl": "https://vibe-drive.store/terms",
+      "privacyPolicyUrl": "https://vibe-drive.store/privacy"
     }
   }
 }

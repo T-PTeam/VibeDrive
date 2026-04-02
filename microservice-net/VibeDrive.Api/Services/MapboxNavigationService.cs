@@ -72,6 +72,81 @@ public class MapboxNavigationService : INavigationService
         };
     }
 
+    public async Task<IReadOnlyList<GeocodeSuggestion>> SuggestAsync(
+        string query,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+        {
+            return Array.Empty<GeocodeSuggestion>();
+        }
+
+        if (string.IsNullOrWhiteSpace(_accessToken))
+        {
+            _logger.LogWarning("Mapbox access token not configured. Skipping suggest.");
+            return Array.Empty<GeocodeSuggestion>();
+        }
+
+        var encoded = HttpUtility.UrlEncode(query.Trim());
+        var url =
+            $"https://api.mapbox.com/geocoding/v5/mapbox.places/{encoded}.json" +
+            $"?access_token={_accessToken}" +
+            "&autocomplete=true&limit=8" +
+            "&types=address,poi,place,locality,neighborhood,region,district";
+
+        using var res = await _httpClient.GetAsync(url, cancellationToken);
+        if (!res.IsSuccessStatusCode)
+        {
+            var body = await res.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("Mapbox suggest failed. Status={Status} Body={Body}", (int)res.StatusCode, body);
+            return Array.Empty<GeocodeSuggestion>();
+        }
+
+        var json = await res.Content.ReadAsStringAsync(cancellationToken);
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("features", out var features) || features.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<GeocodeSuggestion>();
+        }
+
+        var list = new List<GeocodeSuggestion>();
+        var index = 0;
+        foreach (var feature in features.EnumerateArray())
+        {
+            var placeName = feature.TryGetProperty("place_name", out var pn) ? pn.GetString() : null;
+            if (string.IsNullOrWhiteSpace(placeName))
+            {
+                continue;
+            }
+
+            if (!feature.TryGetProperty("center", out var center) ||
+                center.ValueKind != JsonValueKind.Array ||
+                center.GetArrayLength() < 2)
+            {
+                continue;
+            }
+
+            var lon = center[0].GetDouble();
+            var lat = center[1].GetDouble();
+            var id = feature.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                id = $"suggest-{index}";
+            }
+
+            list.Add(new GeocodeSuggestion
+            {
+                Id = id!,
+                Formatted = placeName,
+                Latitude = lat,
+                Longitude = lon,
+            });
+            index++;
+        }
+
+        return list;
+    }
+
     public async Task<RouteResult?> GetRouteAsync(RouteRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.OriginQuery) || string.IsNullOrWhiteSpace(request.DestQuery))

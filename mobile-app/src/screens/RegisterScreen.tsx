@@ -9,11 +9,12 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { getPhpApiUrl } from '../config/api';
-import { PHP_API_TOKEN_KEY } from '../constants/auth';
+import { locationService } from '../services/LocationService';
+import { savePhpSession } from '../utils/phpSession';
+import { logAsyncError } from '../utils/asyncErrors';
 
 type RegisterScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -75,7 +76,8 @@ export default function RegisterScreen({ navigation }: Props) {
       let data: Record<string, unknown> = {};
       try {
         data = raw ? JSON.parse(raw) : {};
-      } catch {
+      } catch (e) {
+        logAsyncError('RegisterScreen', 'parseRegisterResponseJson', e);
         const preview = raw.slice(0, 80).replace(/\s+/g, ' ');
         Alert.alert(
           'Server error',
@@ -100,25 +102,44 @@ export default function RegisterScreen({ navigation }: Props) {
       }
 
       if (data?.status === 'success' && data?.data) {
-        const payload = data.data as { name?: string; email?: string; token?: string };
+        const payload = data.data as {
+          name?: string;
+          email?: string;
+          token?: string;
+        };
+        const uid = payload?.email ?? trimmedEmail;
+        const uname = payload?.name ?? trimmedName;
         if (payload?.token) {
-          await SecureStore.setItemAsync(PHP_API_TOKEN_KEY, payload.token);
+          await savePhpSession(payload.token, uid, uname);
         }
-        navigation.replace('Drive', {
-          userId: payload?.email ?? trimmedEmail,
-          userName: payload?.name ?? trimmedName,
+        locationService.startWatching();
+        navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'Navigation',
+              params: {
+                userId: uid,
+                userName: uname,
+              },
+            },
+          ],
         });
       } else {
         const msg =
-          (data?.message as string) || firstError || `Invalid response (${response.status})`;
+          (data?.message as string) ||
+          firstError ||
+          `Invalid response (${response.status})`;
         Alert.alert('Registration failed', msg);
       }
     } catch (error: any) {
+      logAsyncError('RegisterScreen', 'handleRegister', error);
       clearTimeout(timeoutId);
       const isAbort = error?.name === 'AbortError';
       const message = isAbort
         ? 'Request timed out. Please try again.'
-        : error?.message ?? 'Could not reach server. Check network and try again.';
+        : (error?.message ??
+          'Could not reach server. Check network and try again.');
       Alert.alert(isAbort ? 'Timeout' : 'Error', message);
     } finally {
       setLoading(false);

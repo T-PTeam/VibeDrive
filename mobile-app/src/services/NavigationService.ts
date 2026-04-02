@@ -1,7 +1,11 @@
 import { getApiUrl } from '../config/api';
 import { logger } from './LoggerService';
 import type { ApiSuccessResponse } from '../types/loads';
-import type { GeocodeResultDto, RouteResultDto } from '../types/navigation';
+import type {
+  GeocodeResultDto,
+  GeocodeSuggestionDto,
+  RouteResultDto,
+} from '../types/navigation';
 
 class NavigationService {
   private baseUrl = getApiUrl();
@@ -17,12 +21,12 @@ class NavigationService {
     try {
       const url = `${this.baseUrl}${path}`;
       const res = await fetch(url, {
-        ...options,
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
           ...options?.headers,
         },
+        ...options,
       });
       const text = await res.text();
       const json =
@@ -37,6 +41,9 @@ class NavigationService {
       return json;
     } catch (error: unknown) {
       const err = error as { message?: string; name?: string };
+      if (err?.name === 'AbortError') {
+        return null;
+      }
       logger.error('NavigationService', `Request error ${path}`, {
         message: err?.message ?? String(error),
         name: err?.name,
@@ -51,6 +58,22 @@ class NavigationService {
       `/api/v1/navigation/geocode?query=${q}`
     );
     return out?.data ?? null;
+  }
+
+  async suggest(
+    query: string,
+    signal?: AbortSignal
+  ): Promise<GeocodeSuggestionDto[]> {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      return [];
+    }
+    const q = encodeURIComponent(trimmed);
+    const out = await this.request<GeocodeSuggestionDto[]>(
+      `/api/v1/navigation/suggest?query=${q}`,
+      { signal }
+    );
+    return out?.data ?? [];
   }
 
   async getRoute(

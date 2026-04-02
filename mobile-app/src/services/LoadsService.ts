@@ -2,9 +2,11 @@ import { getPhpApiUrl } from '../config/api';
 import { logger } from './LoggerService';
 import type {
   ActiveRouteDto,
+  DriverSettingsDto,
   FreightLoadDto,
   ApiLoadsResponse,
   ApiSuccessResponse,
+  MonitoringSessionDto,
 } from '../types/loads';
 
 class LoadsService {
@@ -32,6 +34,12 @@ class LoadsService {
       const json =
         text.length > 0 ? (JSON.parse(text) as ApiSuccessResponse<T>) : null;
       if (!res.ok) {
+        const isDriverSettings404 =
+          res.status === 404 && path.includes('/v1/user/driver-settings');
+        if (isDriverSettings404) {
+          logger.debug('LoadsService', 'No saved driver settings', { path });
+          return null;
+        }
         const isGetRoute404 =
           res.status === 404 &&
           path.includes('driver/route') &&
@@ -71,6 +79,46 @@ class LoadsService {
     }
   }
 
+  async getDriverSettings(userId: string): Promise<DriverSettingsDto | null> {
+    const q = encodeURIComponent(userId);
+    const out = await this.request<DriverSettingsDto>(
+      `/v1/user/driver-settings?user_id=${q}`
+    );
+    return out?.data ?? null;
+  }
+
+  async getTtsVoice(userId: string): Promise<string | null | undefined> {
+    const q = encodeURIComponent(userId);
+    const out = await this.request<{ tts_voice_identifier: string | null }>(
+      `/v1/user/tts-voice?user_id=${q}`
+    );
+    if (out === null) {
+      return undefined;
+    }
+    const id = out.data?.tts_voice_identifier;
+    if (typeof id === 'string' && id.trim() !== '') {
+      return id.trim();
+    }
+    return null;
+  }
+
+  async setTtsVoice(
+    userId: string,
+    ttsVoiceIdentifier: string | null
+  ): Promise<boolean> {
+    const out = await this.request<{ tts_voice_identifier: string | null }>(
+      '/v1/user/tts-voice',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          user_id: userId,
+          tts_voice_identifier: ttsVoiceIdentifier,
+        }),
+      }
+    );
+    return out !== null;
+  }
+
   async getActiveRoute(userId: string): Promise<ActiveRouteDto | null> {
     const q = encodeURIComponent(userId);
     const out = await this.request<ActiveRouteDto>(
@@ -94,7 +142,7 @@ class LoadsService {
     weightKg: number,
     volumeM3: number,
     originCity?: string
-  ): Promise<ActiveRouteDto | null> {
+  ): Promise<MonitoringSessionDto | null> {
     const body = {
       user_id: userId,
       dest_city: destCity,
@@ -102,7 +150,7 @@ class LoadsService {
       volume_m3: volumeM3,
       origin_city: originCity ?? null,
     };
-    const out = await this.request<ActiveRouteDto>('/v1/driver/route', {
+    const out = await this.request<MonitoringSessionDto>('/v1/driver/route', {
       method: 'POST',
       body: JSON.stringify(body),
     });

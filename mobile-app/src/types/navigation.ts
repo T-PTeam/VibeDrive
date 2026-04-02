@@ -5,6 +5,13 @@ export interface GeocodeResultDto {
   longitude: number;
 }
 
+export interface GeocodeSuggestionDto {
+  id: string;
+  formatted: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface RoutePointDto {
   latitude: number;
   longitude: number;

@@ -1,6 +1,7 @@
 using StackExchange.Redis;
 using VibeDrive.Api.Hubs;
 using VibeDrive.Api.Interfaces;
+using VibeDrive.Api.Models.Navigation;
 using VibeDrive.Api.Options;
 using VibeDrive.Api.Services;
 using Microsoft.Extensions.Options;
@@ -45,6 +46,8 @@ builder.Services.AddSingleton<IRouteLoadsService>(sp => sp.GetRequiredService<Ro
 builder.Services.AddSingleton<IPendingActionStore, RedisPendingActionStore>();
 
 builder.Services.AddHttpClient();
+
+builder.Services.AddHttpClient<INavigationService, MapboxNavigationService>();
 
 var openAIApiKey = builder.Configuration["OpenAI:ApiKey"] 
     ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") 
@@ -127,6 +130,49 @@ if (!string.IsNullOrEmpty(urls) && urls.Contains("https://"))
 app.UseStaticFiles();
 
 app.UseCors("AllowMobileApp");
+
+app.MapGet(
+    "/api/v1/navigation/geocode",
+    async (string query, INavigationService navigation, CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Results.BadRequest();
+        }
+
+        var result = await navigation.GeocodeAsync(query, cancellationToken);
+        return result is null
+            ? Results.NotFound()
+            : Results.Json(new { status = "success", data = result });
+    });
+
+app.MapGet(
+    "/api/v1/navigation/suggest",
+    async (string query, INavigationService navigation, CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Results.Json(new { status = "success", data = Array.Empty<GeocodeSuggestion>() });
+        }
+
+        var items = await navigation.SuggestAsync(query, cancellationToken);
+        return Results.Json(new { status = "success", data = items });
+    });
+
+app.MapPost(
+    "/api/v1/navigation/route",
+    async (RouteRequest body, INavigationService navigation, CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(body.OriginQuery) || string.IsNullOrWhiteSpace(body.DestQuery))
+        {
+            return Results.BadRequest();
+        }
+
+        var result = await navigation.GetRouteAsync(body, cancellationToken);
+        return result is null
+            ? Results.NotFound()
+            : Results.Json(new { status = "success", data = result });
+    });
 
 app.MapHub<DriverHub>("/driverhub");
 

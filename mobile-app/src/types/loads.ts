@@ -9,6 +9,18 @@ export interface ActiveRouteDto {
   updated_at: string;
 }
 
+export interface MonitoringSessionDto {
+  id: number;
+  status: string;
+  dest_city: string;
+  weight_kg: number;
+  volume_m3: number;
+  origin_city: string;
+  created_at: string;
+}
+
+export type DriverSettingsDto = ActiveRouteDto;
+
 export interface FreightLoadDto {
   id: string;
   origin_city: string;

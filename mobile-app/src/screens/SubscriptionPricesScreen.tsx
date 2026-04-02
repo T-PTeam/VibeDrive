@@ -19,6 +19,7 @@ import {
   isPaidPlanId,
   skuForPaidPlan,
 } from '../utils/subscriptionPurchase';
+import { logAsyncError, logAsyncRejection } from '../utils/asyncErrors';
 
 type SubscriptionPricesScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -90,7 +91,8 @@ export default function SubscriptionPricesScreen({ navigation }: Props) {
       try {
         await finishTransaction({ purchase, isConsumable: false });
         navigation.goBack();
-      } catch {
+      } catch (e) {
+        logAsyncError('SubscriptionPricesScreen', 'handlePurchaseSuccess', e);
         Alert.alert(
           'Purchase',
           'Could not complete the purchase. Please try again.'
@@ -114,15 +116,17 @@ export default function SubscriptionPricesScreen({ navigation }: Props) {
   });
 
   useEffect(() => {
-    getLegalAccepted().then((accepted) => {
-      if (accepted) setLegalChecked(true);
-    });
+    getLegalAccepted()
+      .then((accepted) => {
+        if (accepted) setLegalChecked(true);
+      })
+      .catch(logAsyncRejection('SubscriptionPricesScreen', 'getLegalAccepted'));
   }, []);
 
   useEffect(() => {
     if (!connected) return;
     fetchProducts({ skus: ALL_SUBSCRIPTION_SKUS, type: 'subs' }).catch(
-      () => undefined
+      logAsyncRejection('SubscriptionPricesScreen', 'fetchProducts')
     );
   }, [connected, fetchProducts]);
 
@@ -176,7 +180,8 @@ export default function SubscriptionPricesScreen({ navigation }: Props) {
       await requestPurchase(
         buildSubscriptionPurchaseParams(sku, subscriptions)
       );
-    } catch {
+    } catch (e) {
+      logAsyncError('SubscriptionPricesScreen', 'requestPurchase', e);
       setIapBusy(false);
     }
   };

@@ -27,7 +27,6 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>vibedrive</string>
           <string>com.vibedrive.mobile</string>
         </array>
       </dict>
@@ -59,15 +58,19 @@
       <true/>
     </dict>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>VibeDrive needs Bluetooth access to connect to LED controllers and other BLE devices.</string>
+    <string>VD needs Bluetooth access to connect to LED controllers and other BLE devices.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>VibeDrive needs Bluetooth access to connect to LED controllers and other BLE devices.</string>
+    <string>VD needs Bluetooth access to connect to LED controllers and other BLE devices.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your location</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>VibeDrive uses your location to send position to the driver API for load matching.</string>
+    <string>VibeDrive uses your location for turn-by-turn navigation and the map.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>VibeDrive needs access to your microphone to record voice commands while driving.</string>
+    <string>VD needs access to your microphone to record voice commands while driving.</string>
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>UILaunchStoryboardName</key>

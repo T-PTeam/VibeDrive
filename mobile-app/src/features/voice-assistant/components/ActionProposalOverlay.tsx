@@ -50,11 +50,11 @@ const Btn = styled.TouchableOpacity<{ $primary?: boolean }>`
   padding-vertical: 12px;
   padding-horizontal: 18px;
   border-radius: 10px;
-  background-color: ${(p) => (p.$primary ? '#0a84ff' : '#3a3a44')};
+  background-color: ${(p) => (p.$primary ? '#000000' : '#333333')};
 `;
 
-const BtnText = styled.Text<{ $primary?: boolean }>`
-  color: ${(p) => (p.$primary ? '#ffffff' : '#f2f2f7')};
+const BtnText = styled.Text`
+  color: #ffffff;
   font-size: 15px;
   font-weight: 600;
 `;
@@ -101,7 +101,7 @@ export default function ActionProposalOverlay({
               <BtnText>Reject</BtnText>
             </Btn>
             <Btn $primary onPress={onConfirm} accessibilityRole="button">
-              <BtnText $primary>Confirm</BtnText>
+              <BtnText>Confirm</BtnText>
             </Btn>
           </Row>
         </Card>

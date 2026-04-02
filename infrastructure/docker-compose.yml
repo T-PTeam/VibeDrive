@@ -64,8 +64,6 @@ services:
     networks:
       - vibedrive-network
     restart: unless-stopped
-    profiles:
-      - full
 
   api:
     build:
@@ -83,6 +81,7 @@ services:
       - ASPNETCORE_Kestrel__Certificates__Default__Path=
       - Redis__ConnectionString=${Redis__ConnectionString:-redis:6379}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - Mapbox__AccessToken=${MAPBOX_ACCESS_TOKEN:-}
       - Cors__AllowedOrigins__0=http://localhost:3000
       - Cors__AllowedOrigins__1=http://localhost:5173
       - Cors__AllowedOrigins__2=http://127.0.0.1:3000
@@ -144,9 +143,6 @@ services:
     networks:
       - vibedrive-network
     restart: unless-stopped
-    profiles:
-      - full
-    
 
 volumes:
   redis-data:

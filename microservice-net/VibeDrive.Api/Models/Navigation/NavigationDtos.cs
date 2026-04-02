@@ -17,6 +17,21 @@ public class GeocodeResult
     public double Longitude { get; set; }
 }
 
+public class GeocodeSuggestion
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("formatted")]
+    public string Formatted { get; set; } = string.Empty;
+
+    [JsonPropertyName("latitude")]
+    public double Latitude { get; set; }
+
+    [JsonPropertyName("longitude")]
+    public double Longitude { get; set; }
+}
+
 public class RouteRequest
 {
     [JsonPropertyName("origin_query")]

@@ -365,7 +365,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.vibedrive.mobile;
-				PRODUCT_NAME = VibeDrive;
+				PRODUCT_NAME = "VibeDrive";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "VibeDrive/VibeDrive-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -399,7 +399,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.vibedrive.mobile;
-				PRODUCT_NAME = VibeDrive;
+				PRODUCT_NAME = "VibeDrive";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "VibeDrive/VibeDrive-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
