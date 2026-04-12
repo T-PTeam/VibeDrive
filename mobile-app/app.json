@@ -9,9 +9,8 @@
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
+    "scheme": "vibedrive",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vibedrive.mobile",
@@ -19,48 +18,43 @@
         "NSMicrophoneUsageDescription": "VD needs access to your microphone to record voice commands while driving.",
         "NSBluetoothAlwaysUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
         "NSBluetoothPeripheralUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
-        "LSApplicationQueriesSchemes": [
-          "spotify",
-          "spotify"
-        ],
+        "LSApplicationQueriesSchemes": ["spotify", "spotify"],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "android": {
-        "adaptiveIcon": {
-          "foregroundImage": "./assets/android/play_store_512.png",
-          "backgroundColor": "#000000"
-        },
-        "package": "com.vibedrive.mobile",
-        "permissions": [
-          "RECORD_AUDIO",
-          "BLUETOOTH",
-          "BLUETOOTH_ADMIN",
-          "BLUETOOTH_SCAN",
-          "BLUETOOTH_CONNECT",
-          "ACCESS_FINE_LOCATION"
-        ]
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android/play_store_512.png",
+        "backgroundColor": "#000000"
       },
-      "web": {},
-      "scheme": "vibedrive",
-      "privacyPolicyUrl": "https://vibe-drive.store/privacy",
-      "extra": {
-        "eas": {
-          "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"
-        },
-        "termsOfUseUrl": "https://vibe-drive.store/terms"
-      },
-      "plugins": [
-        "expo-secure-store",
-        "expo-iap"
+      "package": "com.vibedrive.mobile",
+      "permissions": [
+        "RECORD_AUDIO",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "ACCESS_FINE_LOCATION"
       ],
-      "package": "com.vibedrive.mobile"
+      "privacyPolicyUrl": "https://vibe-drive.store/privacy"
     },
     "extra": {
       "eas": {
-        "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"
-      }
-    }
+        "projectId": "16bab08b-19e5-4898-aaf2-bf49c0ab370c"
+      },
+      "termsOfUseUrl": "https://vibe-drive.store/terms"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-iap",
+      [
+        "react-native-vosk",
+        {
+          "models": ["./assets/model-wake-en"],
+          "iOSMicrophonePermission": "VD needs access to your microphone to record voice commands while driving."
+        }
+      ]
+    ],
+    "owner": "theleftoverlck"
   }
 }

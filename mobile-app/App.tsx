@@ -6,6 +6,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import DriveScreen from './src/screens/DriveScreen';
 import SubscriptionPricesScreen from './src/screens/SubscriptionPricesScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 import { signalRService } from './src/services/SignalRService';
 import { getApiUrl } from './src/config/api';
 import { logger } from './src/services/LoggerService';
@@ -24,6 +25,7 @@ export type RootStackParamList = {
   Register: undefined;
   Drive: { userId?: string; userName?: string };
   SubscriptionPrices: undefined;
+  Settings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -73,6 +75,13 @@ export default function App() {
             component={SubscriptionPricesScreen}
             options={{
               title: 'Subscription Plans',
+            }}
+          />
+          <Stack.Screen
+            name="Settings"
+            component={SettingsScreen}
+            options={{
+              title: 'Settings',
             }}
           />
         </Stack.Navigator>

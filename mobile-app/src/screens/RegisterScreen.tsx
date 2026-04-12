@@ -100,7 +100,11 @@ export default function RegisterScreen({ navigation }: Props) {
       }
 
       if (data?.status === 'success' && data?.data) {
-        const payload = data.data as { name?: string; email?: string; token?: string };
+        const payload = data.data as {
+          name?: string;
+          email?: string;
+          token?: string;
+        };
         if (payload?.token) {
           await SecureStore.setItemAsync(PHP_API_TOKEN_KEY, payload.token);
         }
@@ -110,7 +114,9 @@ export default function RegisterScreen({ navigation }: Props) {
         });
       } else {
         const msg =
-          (data?.message as string) || firstError || `Invalid response (${response.status})`;
+          (data?.message as string) ||
+          firstError ||
+          `Invalid response (${response.status})`;
         Alert.alert('Registration failed', msg);
       }
     } catch (error: any) {
@@ -118,7 +124,8 @@ export default function RegisterScreen({ navigation }: Props) {
       const isAbort = error?.name === 'AbortError';
       const message = isAbort
         ? 'Request timed out. Please try again.'
-        : error?.message ?? 'Could not reach server. Check network and try again.';
+        : (error?.message ??
+          'Could not reach server. Check network and try again.');
       Alert.alert(isAbort ? 'Timeout' : 'Error', message);
     } finally {
       setLoading(false);

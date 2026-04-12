@@ -14,6 +14,7 @@
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		C7BCF9E9186BD8B30F69795C /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D4F762E27AF1AAC5FD04D64 /* ExpoModulesProvider.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		46B8BFC20B04447891141301 /* model-wake-en in Resources */ = {isa = PBXBuildFile; fileRef = 1F80C7F80B034D1C9D7A5320 /* model-wake-en */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = VibeDrive/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* VibeDrive-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "VibeDrive-Bridging-Header.h"; path = "VibeDrive/VibeDrive-Bridging-Header.h"; sourceTree = "<group>"; };
 		F133A5464DFAD959A33163E2 /* Pods-VibeDrive.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VibeDrive.debug.xcconfig"; path = "Target Support Files/Pods-VibeDrive/Pods-VibeDrive.debug.xcconfig"; sourceTree = "<group>"; };
+		1F80C7F80B034D1C9D7A5320 /* model-wake-en */ = {isa = PBXFileReference; name = "model-wake-en"; path = "../assets/model-wake-en"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -108,6 +110,7 @@
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				5B4E6C869F406C2D4DF8FA39 /* Pods */,
 				20E0016F45EC1945F443884E /* ExpoModulesProviders */,
+				54FC8BA0E79D4EDB981FF5B2 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -130,6 +133,15 @@
 			name = Supporting;
 			path = VibeDrive/Supporting;
 			sourceTree = "<group>";
+		};
+		54FC8BA0E79D4EDB981FF5B2 /* Resources */ = {
+			isa = "PBXGroup";
+			children = (
+				1F80C7F80B034D1C9D7A5320 /* model-wake-en */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+			path = "";
 		};
 /* End PBXGroup section */
 
@@ -196,6 +208,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				97B6EE086289685367731121 /* PrivacyInfo.xcprivacy in Resources */,
+				46B8BFC20B04447891141301 /* model-wake-en in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -362,7 +375,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.vibedrive.mobile;
-				PRODUCT_NAME = VibeDrive;
+				PRODUCT_NAME = "VibeDrive";
 				SWIFT_OBJC_BRIDGING_HEADER = "VibeDrive/VibeDrive-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -394,7 +407,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.vibedrive.mobile;
-				PRODUCT_NAME = VibeDrive;
+				PRODUCT_NAME = "VibeDrive";
 				SWIFT_OBJC_BRIDGING_HEADER = "VibeDrive/VibeDrive-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

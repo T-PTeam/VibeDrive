@@ -93,6 +93,8 @@ mobile-app/coverage/
 mobile-app/.nyc_output/
 mobile-app/*.log
 mobile-app/.metro-health-check*
+mobile-app/assets/model-wake-en/*
+!mobile-app/assets/model-wake-en/README.txt
 
 # Infrastructure
 infrastructure/.env

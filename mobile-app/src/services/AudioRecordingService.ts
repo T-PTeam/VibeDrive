@@ -1,6 +1,7 @@
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import { logger } from './LoggerService';
+import { configureAudioSessionForHandsFree } from './audioSessionConfig';
 
 export interface RecordingResult {
   uri: string;
@@ -43,6 +44,7 @@ class AudioRecordingService {
       );
 
       this.recording = recording;
+      recording.setProgressUpdateInterval(500);
       this.isRecording = true;
       logger.info('AudioRecording', 'Recording started');
     } catch (error) {
@@ -58,6 +60,9 @@ class AudioRecordingService {
     }
 
     try {
+      try {
+        this.recording.setOnRecordingStatusUpdate(null);
+      } catch {}
       await this.recording.stopAndUnloadAsync();
       const uri = this.recording.getURI();
       const status = await this.recording.getStatusAsync();
@@ -95,6 +100,9 @@ class AudioRecordingService {
     }
 
     try {
+      try {
+        this.recording.setOnRecordingStatusUpdate(null);
+      } catch {}
       await this.recording.stopAndUnloadAsync();
       const uri = this.recording.getURI();
 
@@ -114,6 +122,34 @@ class AudioRecordingService {
 
   getIsRecording(): boolean {
     return this.isRecording;
+  }
+
+  getRecording(): InstanceType<typeof Audio.Recording> | null {
+    return this.recording;
+  }
+
+  async startHandsFreeRecording(): Promise<void> {
+    if (this.isRecording) {
+      logger.warn('AudioRecording', 'Recording already in progress');
+      return;
+    }
+    try {
+      await configureAudioSessionForHandsFree();
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      this.recording = recording;
+      recording.setProgressUpdateInterval(100);
+      this.isRecording = true;
+      logger.info('AudioRecording', 'Hands-free recording started');
+    } catch (error) {
+      logger.error(
+        'AudioRecording',
+        'Failed to start hands-free recording',
+        error
+      );
+      throw error;
+    }
   }
 }
 
