@@ -17,7 +17,7 @@ export const DRIVE_SPEAKER_AUDIO_MODE = {
   interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
   shouldDuckAndroid: false,
   playThroughEarpieceAndroid: false,
-};
+} as const;
 
 export const TTS_ANDROID_SPEAKER_PRIMING_URI =
   'https://raw.githubusercontent.com/anars/blank-audio/master/1-second-of-silence.mp3';

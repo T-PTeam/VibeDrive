@@ -1,22 +1,17 @@
-import React, { useEffect, useRef } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import DriveScreen from './src/screens/DriveScreen';
-import SubscriptionPricesScreen from './src/screens/SubscriptionPricesScreen';
 import NavigationScreen from './src/screens/NavigationScreen';
+import SubscriptionPricesScreen from './src/screens/SubscriptionPricesScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 import UserSettingsScreen from './src/screens/UserSettingsScreen';
 import { signalRService } from './src/services/SignalRService';
-import { loadsService } from './src/services/LoadsService';
-import { navigationService } from './src/services/NavigationService';
-import { locationService } from './src/services/LocationService';
 import { getApiUrl, getPhpApiUrl } from './src/config/api';
 import { logger } from './src/services/LoggerService';
-import { PHP_API_USER_ID_KEY } from './src/constants/auth';
 
 try {
   const WebBrowser = require('expo-web-browser');
@@ -31,55 +26,44 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   Drive: { userId?: string; userName?: string };
-  SubscriptionPrices: undefined;
-  UserSettings: { userId?: string; destQuery?: string };
   Navigation: {
-    originQuery?: string;
-    destQuery?: string;
     userId?: string;
     userName?: string;
+    originQuery?: string;
+    destQuery?: string;
   };
+  SubscriptionPrices: undefined;
+  Settings: undefined;
+  UserSettings: { userId?: string; destQuery?: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-
   useEffect(() => {
     const apiUrl = getApiUrl();
-    const phpUrl = getPhpApiUrl();
+    const phpApiUrl = getPhpApiUrl();
     signalRService.setBaseUrl(apiUrl);
-    navigationService.setBaseUrl(apiUrl);
-    loadsService.setBaseUrl(phpUrl);
-    locationService.setBaseUrl(phpUrl);
-    locationService.startWatching();
     signalRService.onStateChange((state) => {
       logger.debug('App', 'SignalR state changed', { state });
     });
     logger.info('App', 'SignalR service initialized', { url: apiUrl });
-    return () => {
-      locationService.stopWatching();
-    };
-  }, []);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      const prev = appStateRef.current;
-      appStateRef.current = next;
-      if (prev === 'active' && (next === 'background' || next === 'inactive')) {
-        (async () => {
-          const userId = await SecureStore.getItemAsync(PHP_API_USER_ID_KEY);
-          if (userId) {
-            await locationService.sendLocation(userId);
-          }
-        })().catch(() => undefined);
-      }
-      if ((prev === 'background' || prev === 'inactive') && next === 'active') {
-        locationService.startWatching();
-      }
-    });
-    return () => sub.remove();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    void fetch(`${apiUrl}/api/ping`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        const text = await res.text().catch(() => '');
+        void text;
+      })
+      .catch((e) => {
+        void e;
+      })
+      .finally(() => clearTimeout(timeoutId));
   }, []);
 
   return (
@@ -113,6 +97,13 @@ export default function App() {
             }}
           />
           <Stack.Screen
+            name="Navigation"
+            component={NavigationScreen}
+            options={{
+              title: 'Navigation',
+            }}
+          />
+          <Stack.Screen
             name="SubscriptionPrices"
             component={SubscriptionPricesScreen}
             options={{
@@ -120,17 +111,17 @@ export default function App() {
             }}
           />
           <Stack.Screen
-            name="UserSettings"
-            component={UserSettingsScreen}
+            name="Settings"
+            component={SettingsScreen}
             options={{
-              title: 'User settings',
+              title: 'Settings',
             }}
           />
           <Stack.Screen
-            name="Navigation"
-            component={NavigationScreen}
+            name="UserSettings"
+            component={UserSettingsScreen}
             options={{
-              title: 'Navigation',
+              title: 'Driver Settings',
             }}
           />
         </Stack.Navigator>

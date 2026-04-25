@@ -79,6 +79,8 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PhpApi__BaseUrl=http://nginx/api
+      - Mapbox__AccessToken=${MAPBOX_ACCESS_TOKEN}
     depends_on:
       redis:
         condition: service_healthy
@@ -94,7 +96,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/conf.d/production.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/production.default.conf:/etc/nginx/conf.d/default.conf
       - ./nginx/certs:/etc/nginx/certs:ro
       - ./nginx/html:/usr/share/nginx/html:ro
     depends_on:

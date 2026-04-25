@@ -20,6 +20,23 @@ export function invalidateTtsVoiceCache(): void {
 
 export { DRIVE_SPEAKER_AUDIO_MODE } from './ttsConstants';
 
+async function prepareLoudspeakerTtsSession(): Promise<Audio.Sound | null> {
+  await Audio.setAudioModeAsync({ ...DRIVE_SPEAKER_AUDIO_MODE });
+  if (Platform.OS === 'web') {
+    return null;
+  }
+  try {
+    const { sound } = await Audio.Sound.createAsync({
+      uri: TTS_ANDROID_SPEAKER_PRIMING_URI,
+    });
+    await sound.playAsync();
+    return sound;
+  } catch (e) {
+    logAsyncError('speakDriverLine', 'prepareLoudspeakerTtsSession', e);
+    return null;
+  }
+}
+
 export type ResolvedTtsSpeech = {
   voice?: string;
   language: string;
@@ -33,7 +50,7 @@ export function buildTtsSpeechOptions(
     language: opts.language,
     ...(opts.voice ? { voice: opts.voice } : {}),
     ...(Platform.OS === 'ios'
-      ? { useApplicationAudioSession: false as const }
+      ? { useApplicationAudioSession: true as const }
       : {}),
   };
 }
@@ -172,23 +189,10 @@ export async function speakDriverLine(
   } catch (e) {
     logAsyncError('speakDriverLine', 'speechStopBeforeSpeak', e);
   }
-  try {
-    await Audio.setAudioModeAsync(DRIVE_SPEAKER_AUDIO_MODE);
-  } catch (e) {
-    logger.warn('DriveAssist', 'setAudioModeAsync before TTS failed', e);
-  }
-  if (Platform.OS === 'android') {
-    void (async () => {
-      try {
-        const { sound } = await Audio.Sound.createAsync({
-          uri: TTS_ANDROID_SPEAKER_PRIMING_URI,
-        });
-        await sound.playAsync();
-      } catch (e) {
-        logAsyncError('speakDriverLine', 'androidSpeakerPriming', e);
-      }
-    })();
-  }
+  logger.info('DriveAssist', 'TTS using main speaker (primed session)', {
+    platform: Platform.OS,
+  });
+  const priming = await prepareLoudspeakerTtsSession();
   const opts = await getResolvedTtsSpeechOptions();
-  await speakWithOptions(text, opts, null, onError, true);
+  await speakWithOptions(text, opts, priming, onError, true);
 }

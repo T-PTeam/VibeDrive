@@ -5,7 +5,6 @@ import * as SecureStore from 'expo-secure-store';
 import { signalRService } from '../../services/SignalRService';
 import { logger } from '../../services/LoggerService';
 import { speakDriverLine } from './speakDriverLine';
-import { DRIVE_SPEAKER_AUDIO_MODE } from './ttsConstants';
 import { Audio } from 'expo-av';
 import { audioRecordingService } from '../../services/AudioRecordingService';
 import { redisService } from '../../services/RedisService';
@@ -13,6 +12,7 @@ import { spotifyService } from '../../services/SpotifyService';
 import { ledController } from '../../services/LEDController';
 import { apiService } from '../../services/ApiService';
 import { PHP_API_TOKEN_KEY } from '../../constants/auth';
+import { clearPhpSession } from '../../utils/phpSession';
 import { logAsyncError } from '../../utils/asyncErrors';
 
 const LED_SERVICE_UUID = '00001111-0000-1000-8000-00805f9b34fb';
@@ -39,16 +39,7 @@ export function useDriveAssist(userId: string, options?: DriveAssistOptions) {
       }
     };
 
-    const setSpeakerAudioMode = async () => {
-      try {
-        await Audio.setAudioModeAsync(DRIVE_SPEAKER_AUDIO_MODE);
-      } catch (e) {
-        logger.warn('DriveAssist', 'setSpeakerAudioMode failed', e);
-      }
-    };
-
     const initializeServices = async () => {
-      await setSpeakerAudioMode();
       ledController.initialize({
         serviceUUID: LED_SERVICE_UUID,
         characteristicUUID: LED_CHARACTERISTIC_UUID,
@@ -172,8 +163,22 @@ export function useDriveAssist(userId: string, options?: DriveAssistOptions) {
   }, [isRecording]);
 
   const handleMicrophonePress = useCallback(async () => {
+    logger.info('DriveAssist', 'Mic pressed', {
+      isRecording,
+      isUploading,
+      userId,
+      hasSessionId: chatSessionId != null,
+    });
     if (isRecording) {
       try {
+        if (!audioRecordingService.getIsRecording()) {
+          logger.warn('DriveAssist', 'Mic stop pressed but recorder inactive', {
+            isRecording,
+          });
+          setIsRecording(false);
+          setRecordingDuration(0);
+          return;
+        }
         setIsUploading(true);
         const result = await audioRecordingService.stopRecording();
         setIsRecording(false);
@@ -182,16 +187,41 @@ export function useDriveAssist(userId: string, options?: DriveAssistOptions) {
         if (result) {
           logger.info('DriveAssist', 'Recording stopped', result);
           const token = await SecureStore.getItemAsync(PHP_API_TOKEN_KEY);
+          logger.info('DriveAssist', 'Token check', {
+            hasToken: !!token,
+            tokenLength: token ? token.length : 0,
+          });
           if (token) {
             logger.info('DriveAssist', 'Sending audio to chat API', {
               hasToken: true,
               hasSessionId: chatSessionId != null,
             });
-            const chatResult = await apiService.sendAudioToChat(
-              result.uri,
-              token,
-              chatSessionId
-            );
+            let chatResult: Awaited<
+              ReturnType<typeof apiService.sendAudioToChat>
+            > = null;
+            try {
+              chatResult = await apiService.sendAudioToChat(
+                result.uri,
+                token,
+                chatSessionId
+              );
+            } catch (e: any) {
+              const code = (e as { code?: string })?.code;
+              if (
+                code === 'UNAUTHENTICATED' ||
+                e?.message === 'Unauthenticated'
+              ) {
+                logger.warn(
+                  'DriveAssist',
+                  'Chat API unauthorized - clearing session'
+                );
+                await clearPhpSession().catch(() => {});
+                setChatSessionId(null);
+                Alert.alert('Session expired', 'Please log in again.');
+                return;
+              }
+              throw e;
+            }
             logger.info('DriveAssist', 'Chat API result received', {
               hasResult: chatResult != null,
               sessionId: chatResult?.session_id ?? null,
@@ -299,6 +329,9 @@ export function useDriveAssist(userId: string, options?: DriveAssistOptions) {
               result.uri,
               result.duration
             );
+            logger.info('DriveAssist', 'Published to redis fallback', {
+              success,
+            });
             if (!success) {
               Alert.alert(
                 'Warning',
@@ -322,9 +355,11 @@ export function useDriveAssist(userId: string, options?: DriveAssistOptions) {
       }
     } else {
       try {
+        logger.info('DriveAssist', 'Starting recording');
         await audioRecordingService.startRecording();
         setIsRecording(true);
         setRecordingDuration(0);
+        logger.info('DriveAssist', 'Recording started');
       } catch (error) {
         logger.error('DriveAssist', 'Failed to start recording', error);
         Alert.alert('Error', 'Failed to start recording. Please try again.');

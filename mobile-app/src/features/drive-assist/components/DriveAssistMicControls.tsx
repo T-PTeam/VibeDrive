@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import styled from 'styled-components/native';
 
-type Variant = 'drive' | 'floating';
+type Variant = 'drive' | 'floating' | 'inline';
 
 type Props = {
   variant: Variant;
@@ -30,7 +30,12 @@ const Wrapper = styled.View<{ $variant: Variant }>`
     align-items: center;
     z-index: 20;
   `
-      : `
+      : p.$variant === 'inline'
+        ? `
+    align-items: center;
+    justify-content: center;
+  `
+        : `
     flex: 1;
     justify-content: center;
     align-items: center;
@@ -80,6 +85,7 @@ export default function DriveAssistMicControls({
   style,
 }: Props) {
   const floating = variant === 'floating';
+  const inline = variant === 'inline';
 
   return (
     <Wrapper $variant={variant} style={style}>
@@ -92,13 +98,13 @@ export default function DriveAssistMicControls({
       >
         <MicIcon>🎤</MicIcon>
       </MicButton>
-      {isRecording ? (
+      {!inline && isRecording ? (
         <StatusText $floating={floating}>
           Recording...{' '}
           {recordingDuration > 0 && `${Math.floor(recordingDuration)}s`}
         </StatusText>
       ) : null}
-      {isUploading ? (
+      {!inline && isUploading ? (
         <UploadRow>
           <ActivityIndicator
             size="small"

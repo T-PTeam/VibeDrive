@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		46B8BFC20B04447891141301 /* model-wake-en in Resources */ = {isa = PBXBuildFile; fileRef = 1F80C7F80B034D1C9D7A5320 /* model-wake-en */; };
 		97B6EE086289685367731121 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 07F7F86D7E7802F7AD872FF3 /* PrivacyInfo.xcprivacy */; };
 		A9439651D374695CBC02AAC7 /* libPods-VibeDrive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 39984D3DD796DC4A4CDEF689 /* libPods-VibeDrive.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
@@ -21,6 +22,7 @@
 		13B07F961A680F5B00A75B9A /* VibeDrive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VibeDrive.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = VibeDrive/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = VibeDrive/Info.plist; sourceTree = "<group>"; };
+		1F80C7F80B034D1C9D7A5320 /* model-wake-en */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "model-wake-en"; path = "../assets/model-wake-en"; sourceTree = "<group>"; };
 		39984D3DD796DC4A4CDEF689 /* libPods-VibeDrive.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-VibeDrive.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6D4F762E27AF1AAC5FD04D64 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-VibeDrive/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		79D67DCBB27A7DDB0A20A812 /* Pods-VibeDrive.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-VibeDrive.release.xcconfig"; path = "Target Support Files/Pods-VibeDrive/Pods-VibeDrive.release.xcconfig"; sourceTree = "<group>"; };
@@ -75,6 +77,15 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		54FC8BA0E79D4EDB981FF5B2 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1F80C7F80B034D1C9D7A5320 /* model-wake-en */,
+			);
+			name = Resources;
+			path = "";
+			sourceTree = "<group>";
+		};
 		5B4E6C869F406C2D4DF8FA39 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
@@ -108,6 +119,7 @@
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				5B4E6C869F406C2D4DF8FA39 /* Pods */,
 				20E0016F45EC1945F443884E /* ExpoModulesProviders */,
+				54FC8BA0E79D4EDB981FF5B2 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -196,6 +208,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				97B6EE086289685367731121 /* PrivacyInfo.xcprivacy in Resources */,
+				46B8BFC20B04447891141301 /* model-wake-en in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,24 +288,26 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXApplication/ExpoApplication_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/EXNotifications/ExpoNotifications_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-launcher/EXDevLauncher.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-menu/EXDevMenu.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/react-native-maps/ReactNativeMapsPrivacy.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoApplication_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoNotifications_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevLauncher.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevMenu.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ReactNativeMapsPrivacy.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -343,7 +358,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = VibeDrive/VibeDrive.entitlements;
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9N54Y9732J;
 				ENABLE_BITCODE = NO;
@@ -365,8 +379,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.vibedrive.mobile;
-				PRODUCT_NAME = "VibeDrive";
-				PROVISIONING_PROFILE_SPECIFIER = "";
+				PRODUCT_NAME = VibeDrive;
 				SWIFT_OBJC_BRIDGING_HEADER = "VibeDrive/VibeDrive-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -382,7 +395,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = VibeDrive/VibeDrive.entitlements;
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9N54Y9732J;
 				INFOPLIST_FILE = VibeDrive/Info.plist;
@@ -399,8 +411,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.vibedrive.mobile;
-				PRODUCT_NAME = "VibeDrive";
-				PROVISIONING_PROFILE_SPECIFIER = "";
+				PRODUCT_NAME = VibeDrive;
 				SWIFT_OBJC_BRIDGING_HEADER = "VibeDrive/VibeDrive-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

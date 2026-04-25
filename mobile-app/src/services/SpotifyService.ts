@@ -8,6 +8,9 @@ interface SpotifyTrack {
   uri?: string;
   trackId?: string;
   query?: string;
+  genre?: string;
+  genreOnly?: boolean;
+  searchGenreHint?: string;
 }
 
 interface SpotifyTokenResponse {
@@ -33,6 +36,8 @@ class SpotifyService {
   private readonly accessTokenKey = 'spotify_access_token';
   private readonly refreshTokenKey = 'spotify_refresh_token';
   private readonly expiresAtKey = 'spotify_expires_at';
+
+  private lastPlayWasSearchFallbackOnly = false;
 
   initialize(clientId: string, redirectUri: string) {
     this.clientId = clientId;
@@ -105,6 +110,7 @@ class SpotifyService {
   }
 
   async playTrack(track: SpotifyTrack): Promise<boolean> {
+    this.lastPlayWasSearchFallbackOnly = false;
     try {
       if (!this.clientId) {
         logger.warn(
@@ -129,6 +135,16 @@ class SpotifyService {
 
       const uri = await this.resolveUri(track, finalAccessToken);
       if (!uri) {
+        return false;
+      }
+
+      if (uri.startsWith('spotify:search:')) {
+        this.lastPlayWasSearchFallbackOnly = true;
+        logger.warn(
+          'SpotifyService',
+          'No track resolved; opened search only (not counted as playback success)',
+          { uri }
+        );
         return false;
       }
 
@@ -171,6 +187,7 @@ class SpotifyService {
   }
 
   async playMusic(command: string | any): Promise<boolean> {
+    this.lastPlayWasSearchFallbackOnly = false;
     try {
       let track: SpotifyTrack;
 
@@ -197,6 +214,12 @@ class SpotifyService {
           'SpotifyService',
           'Spotify not configured - opening search instead'
         );
+        if (track.genreOnly && track.genre) {
+          await this.openSpotifyApp(
+            `spotify:search:${encodeURIComponent(track.genre)}`
+          );
+          return true;
+        }
         if (track.query) {
           await this.openSpotifyApp(
             `spotify:search:${encodeURIComponent(track.query)}`
@@ -246,13 +269,17 @@ class SpotifyService {
         : typeof data.style === 'string'
           ? data.style.trim()
           : '';
+    if (genre && !trackName && !artistName) {
+      return { genre, genreOnly: true };
+    }
     if (trackName || artistName || genre) {
-      const parts = [
-        trackName,
-        artistName,
-        genre ? `${genre} music` : '',
-      ].filter(Boolean);
-      return { query: parts.join(' ') };
+      if (trackName || artistName) {
+        const parts = [trackName, artistName].filter(Boolean);
+        const searchGenreHint =
+          genre && (trackName || artistName) ? genre : undefined;
+        return { query: parts.join(' '), searchGenreHint };
+      }
+      return { query: `${genre} music` };
     }
     if (data.query || data.search || data.song || data.track) {
       return {
@@ -442,12 +469,21 @@ class SpotifyService {
       return { ok: true, status: response.status, data: null, raw: null };
     }
 
-    return {
-      ok: true,
-      status: response.status,
-      data: JSON.parse(raw) as T,
-      raw,
-    };
+    try {
+      return {
+        ok: true,
+        status: response.status,
+        data: JSON.parse(raw) as T,
+        raw,
+      };
+    } catch (error) {
+      logger.error('SpotifyService', 'Spotify API JSON parse failed', {
+        path,
+        error,
+        rawSnippet: raw.slice(0, 240),
+      });
+      return { ok: false, status: response.status, data: null, raw };
+    }
   }
 
   private async resolveUri(
@@ -462,30 +498,99 @@ class SpotifyService {
       return `spotify:track:${track.trackId}`;
     }
 
-    if (!track.query) {
+    if (track.genreOnly && track.genre) {
+      const playlistPaths = [
+        `/v1/search?q=${encodeURIComponent(track.genre)}&type=playlist&limit=1&market=from_token`,
+        `/v1/search?q=${encodeURIComponent(track.genre)}&type=playlist&limit=1`,
+      ];
+      for (const path of playlistPaths) {
+        const playlistSearch = await this.spotifyApi<{
+          playlists?: { items?: Array<{ uri: string }> };
+        }>(accessToken, path);
+
+        if (
+          playlistSearch.ok &&
+          playlistSearch.data?.playlists?.items?.length
+        ) {
+          const playlistUri = playlistSearch.data.playlists.items[0].uri;
+          logger.info('SpotifyService', 'Resolved genre to playlist', {
+            genre: track.genre,
+            playlistUri,
+          });
+          return playlistUri;
+        }
+
+        logger.warn('SpotifyService', 'Genre playlist search attempt empty', {
+          status: playlistSearch.status,
+          raw: playlistSearch.raw,
+        });
+      }
+      logger.warn('SpotifyService', 'Genre playlist search failed', {
+        genre: track.genre,
+      });
+    }
+
+    const textQuery =
+      track.query ??
+      (track.genreOnly && track.genre ? `${track.genre} music` : undefined);
+
+    if (!textQuery) {
       Alert.alert('Spotify', 'No query provided.');
       return null;
     }
 
-    const search = await this.spotifyApi<{
-      tracks?: { items?: Array<{ uri: string }> };
-    }>(
-      accessToken,
-      `/v1/search?q=${encodeURIComponent(track.query)}&type=track&limit=1&market=from_token`
-    );
-
-    if (!search.ok || !search.data?.tracks?.items?.length) {
-      logger.warn('SpotifyService', 'Search failed or empty', {
-        status: search.status,
-        raw: search.raw,
-      });
-      await this.openSpotifyApp(
-        `spotify:search:${encodeURIComponent(track.query)}`
-      );
-      return null;
+    const queryVariants: string[] = [textQuery, `track:${textQuery}`];
+    if (track.searchGenreHint) {
+      queryVariants.push(`${textQuery} ${track.searchGenreHint}`);
+      queryVariants.push(`track:${textQuery} genre:${track.searchGenreHint}`);
     }
 
-    return search.data.tracks.items[0].uri;
+    const seenPaths = new Set<string>();
+    for (const qv of queryVariants) {
+      for (const useMarket of [true, false]) {
+        const path =
+          `/v1/search?q=${encodeURIComponent(qv)}&type=track&limit=10` +
+          (useMarket ? '&market=from_token' : '');
+        if (seenPaths.has(path)) {
+          continue;
+        }
+        seenPaths.add(path);
+
+        const search = await this.spotifyApi<{
+          tracks?: { items?: Array<{ uri: string }> };
+        }>(accessToken, path);
+
+        if (search.ok && search.data?.tracks?.items?.length) {
+          const picked = search.data.tracks.items[0].uri;
+          logger.info('SpotifyService', 'Resolved track from search', {
+            qv,
+            useMarket,
+            picked,
+          });
+          return picked;
+        }
+
+        logger.warn('SpotifyService', 'Search attempt failed or empty', {
+          qv,
+          useMarket,
+          status: search.status,
+          raw: search.raw,
+        });
+      }
+    }
+
+    const searchUri = `spotify:search:${encodeURIComponent(textQuery)}`;
+    const opened = await this.openSpotifyApp(searchUri);
+    if (!opened) {
+      logger.warn('SpotifyService', 'Search fallback open failed', {
+        textQuery,
+      });
+      return null;
+    }
+    logger.info('SpotifyService', 'Opened Spotify search fallback', {
+      searchUri,
+    });
+    return searchUri;
   }
 
   private async getDevices(accessToken: string): Promise<SpotifyDevice[]> {
@@ -510,12 +615,16 @@ class SpotifyService {
     deviceId: string,
     uri: string
   ): Promise<boolean> {
+    const body = uri.startsWith('spotify:playlist:')
+      ? JSON.stringify({ context_uri: uri })
+      : JSON.stringify({ uris: [uri] });
+
     const result = await this.spotifyApi<unknown>(
       accessToken,
       `/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
       {
         method: 'PUT',
-        body: JSON.stringify({ uris: [uri] }),
+        body,
       }
     );
 
@@ -555,33 +664,34 @@ class SpotifyService {
     return true;
   }
 
-  private async openSpotifyApp(uri: string): Promise<boolean> {
+  private searchQueryFromSpotifySearchUri(uri: string): string {
+    const raw = uri.slice('spotify:search:'.length);
     try {
-      logger.info('SpotifyService', 'Opening Spotify', { uri });
-      const canOpen = await Linking.canOpenURL(uri);
-      if (!canOpen) {
-        logger.warn(
-          'SpotifyService',
-          'Cannot open Spotify URI, trying web fallback',
-          { uri }
-        );
-        throw new Error('Cannot open Spotify URI');
-      }
-      await Linking.openURL(uri);
-      logger.info('SpotifyService', 'Successfully opened Spotify');
-      return true;
-    } catch (error) {
-      logger.warn('SpotifyService', 'Failed to open Spotify app', error);
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
 
+  private async openSpotifyApp(uri: string): Promise<boolean> {
+    const openWebFallbacks = async (): Promise<boolean> => {
       if (uri.startsWith('spotify:track:')) {
         const id = uri.replace('spotify:track:', '');
         await Linking.openURL(`https://open.spotify.com/track/${id}`);
         return true;
       }
 
+      if (uri.startsWith('spotify:playlist:')) {
+        const id = uri.replace('spotify:playlist:', '');
+        await Linking.openURL(`https://open.spotify.com/playlist/${id}`);
+        return true;
+      }
+
       if (uri.startsWith('spotify:search:')) {
-        const q = uri.replace('spotify:search:', '');
-        await Linking.openURL(`https://open.spotify.com/search/${q}`);
+        const searchQuery = this.searchQueryFromSpotifySearchUri(uri);
+        await Linking.openURL(
+          `https://open.spotify.com/search/${encodeURIComponent(searchQuery)}`
+        );
         return true;
       }
 
@@ -592,7 +702,60 @@ class SpotifyService {
         return true;
       }
       return false;
+    };
+
+    try {
+      logger.info('SpotifyService', 'Opening Spotify', { uri });
+      if (uri.startsWith('spotify:search:') && Platform.OS === 'android') {
+        const searchQuery = this.searchQueryFromSpotifySearchUri(uri);
+        const httpsSearch = `https://open.spotify.com/search/${encodeURIComponent(searchQuery)}`;
+        try {
+          await Linking.openURL(httpsSearch);
+          logger.info('SpotifyService', 'Opened Spotify search via HTTPS', {
+            searchQuery,
+          });
+          return true;
+        } catch (e) {
+          logger.warn(
+            'SpotifyService',
+            'HTTPS search open failed (Android)',
+            e
+          );
+        }
+      }
+      if (uri.startsWith('spotify:track:') && Platform.OS === 'android') {
+        const id = uri.replace('spotify:track:', '');
+        const httpsTrack = `https://open.spotify.com/track/${id}`;
+        try {
+          await Linking.openURL(httpsTrack);
+          logger.info('SpotifyService', 'Successfully opened Spotify');
+          return true;
+        } catch (e) {
+          logger.warn('SpotifyService', 'HTTPS track open failed', e);
+        }
+      }
+      if (Platform.OS === 'ios') {
+        const canOpen = await Linking.canOpenURL(uri);
+        if (!canOpen) {
+          logger.warn(
+            'SpotifyService',
+            'Cannot open Spotify URI, trying web fallback',
+            { uri }
+          );
+          throw new Error('Cannot open Spotify URI');
+        }
+      }
+      await Linking.openURL(uri);
+      logger.info('SpotifyService', 'Successfully opened Spotify');
+      return true;
+    } catch (error) {
+      logger.warn('SpotifyService', 'Failed to open Spotify app', error);
+      return await openWebFallbacks();
     }
+  }
+
+  getLastPlayWasSearchFallbackOnly(): boolean {
+    return this.lastPlayWasSearchFallbackOnly;
   }
 
   getIsAuthenticated(): boolean {

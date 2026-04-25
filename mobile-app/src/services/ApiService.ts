@@ -113,6 +113,14 @@ class ApiService {
         });
         const message = (data?.message as string) || '';
         if (
+          response.status === 401 ||
+          message.toLowerCase().includes('unauthenticated')
+        ) {
+          const authError = new Error('Unauthenticated');
+          (authError as any).code = 'UNAUTHENTICATED';
+          throw authError;
+        }
+        if (
           response.status === 429 ||
           message.toLowerCase().includes('rate limit')
         ) {

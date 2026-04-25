@@ -31,12 +31,14 @@ export default function NavigationMap({
   isDriving,
 }: Props) {
   const mapRef = useRef<MapView>(null);
+  const flatListRef = useRef<FlatList>(null);
+  const isDrivingRef = useRef(isDriving);
+  isDrivingRef.current = isDriving;
+
   const points = routeData?.polyline ?? [];
 
   useEffect(() => {
-    if (!routeData || !mapRef.current) {
-      return;
-    }
+    if (!routeData || !mapRef.current || isDrivingRef.current) return;
     const coords = routeData.polyline.map((p) => ({
       latitude: p.latitude,
       longitude: p.longitude,
@@ -58,27 +60,21 @@ export default function NavigationMap({
         { duration: 450 }
       );
     }
-  }, [routeData]);
+  }, [routeData, isDriving]);
 
-  const initialRegion = useMemo(() => {
-    if (routeData) {
-      return {
-        latitude: routeData.origin.latitude,
-        longitude: routeData.origin.longitude,
-        latitudeDelta: 1.2,
-        longitudeDelta: 1.2,
-      };
+  useEffect(() => {
+    if (!routeData || routeData.steps.length === 0) return;
+    const idx = Math.min(activeStepIndex, routeData.steps.length - 1);
+    try {
+      flatListRef.current?.scrollToIndex({
+        index: idx,
+        animated: true,
+        viewPosition: 0,
+      });
+    } catch {
+      // scrollToIndex may fail before layout completes
     }
-    if (userCoordinate) {
-      return {
-        latitude: userCoordinate.latitude,
-        longitude: userCoordinate.longitude,
-        latitudeDelta: 0.08,
-        longitudeDelta: 0.08,
-      };
-    }
-    return FALLBACK_REGION;
-  }, [routeData, userCoordinate?.latitude, userCoordinate?.longitude]);
+  }, [activeStepIndex, routeData]);
 
   useEffect(() => {
     if (!isDriving || !userCoordinate || !mapRef.current) {
@@ -115,6 +111,26 @@ export default function NavigationMap({
     });
     return () => cancelAnimationFrame(id);
   }, [routeData, userCoordinate?.latitude, userCoordinate?.longitude, heading]);
+
+  const initialRegion = useMemo(() => {
+    if (routeData) {
+      return {
+        latitude: routeData.origin.latitude,
+        longitude: routeData.origin.longitude,
+        latitudeDelta: 1.2,
+        longitudeDelta: 1.2,
+      };
+    }
+    if (userCoordinate) {
+      return {
+        latitude: userCoordinate.latitude,
+        longitude: userCoordinate.longitude,
+        latitudeDelta: 0.08,
+        longitudeDelta: 0.08,
+      };
+    }
+    return FALLBACK_REGION;
+  }, [routeData, userCoordinate?.latitude, userCoordinate?.longitude]);
 
   const panelMaxHeight = isDriving ? 160 : 280;
 
@@ -171,8 +187,10 @@ export default function NavigationMap({
         <Text style={styles.panelTitle}>Directions</Text>
         {routeData && routeData.steps.length > 0 ? (
           <FlatList
+            ref={flatListRef}
             data={routeData.steps}
             keyExtractor={(_, idx) => String(idx)}
+            onScrollToIndexFailed={() => {}}
             renderItem={({ item, index }) => (
               <View
                 style={[

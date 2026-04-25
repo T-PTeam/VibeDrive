@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Alert,
   TouchableOpacity,
+  Switch,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -20,6 +21,7 @@ import { RouteProp } from '@react-navigation/native';
 import * as SecureStore from 'expo-secure-store';
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../../App';
 import { PHP_API_TOKEN_KEY } from '../constants/auth';
 import { navigationService } from '../services/NavigationService';
@@ -28,13 +30,10 @@ import { locationService } from '../services/LocationService';
 import { signalRService } from '../services/SignalRService';
 import { clearPhpSession } from '../utils/phpSession';
 import NavigationMap from '../components/NavigationMap';
+import NextTurnBanner from '../features/navigation/components/NextTurnBanner';
 import type { RouteResultDto } from '../types/navigation';
 import { useDriveAssist } from '../features/drive-assist/useDriveAssist';
-import {
-  speakDriverLine,
-  buildTtsSpeechOptions,
-  getResolvedTtsSpeechOptions,
-} from '../features/drive-assist/speakDriverLine';
+import { speakDriverLine } from '../features/drive-assist/speakDriverLine';
 import { TTS_MESSAGES } from '../features/drive-assist/ttsConstants';
 import DriveAssistMicControls from '../features/drive-assist/components/DriveAssistMicControls';
 import NavigationFields from '../features/navigation/components/NavigationFields';
@@ -46,6 +45,20 @@ import {
   saveNavigationQueries,
 } from '../features/navigation/utils/navigationPrefs';
 import { formatGeocodedAddress } from '../features/navigation/utils/formatGeocodedAddress';
+import { wakeWordService } from '../services/wakeWordService';
+import { vadService } from '../services/vadService';
+import { audioRecordingService } from '../services/AudioRecordingService';
+import { audioDuckingService } from '../services/audioDuckingService';
+import {
+  configureAudioSessionForHandsFree,
+  configureAudioSessionForHandsFreeCapture,
+} from '../services/audioSessionConfig';
+import {
+  STORAGE_HANDS_FREE_ENABLED,
+  HANDS_FREE_MAX_UTTERANCE_MS,
+  getHandsFreeVadPartial,
+} from '../constants/handsFree';
+import { logger } from '../services/LoggerService';
 import { logAsyncError, logAsyncRejection } from '../utils/asyncErrors';
 
 type NavigationScreenNavigationProp = NativeStackNavigationProp<
@@ -79,8 +92,22 @@ function distanceMeters(
   return R * c;
 }
 
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    t = setTimeout(() => reject(new Error('timeout')), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (t) clearTimeout(t);
+  }
+}
+
 export default function NavigationScreen({ navigation, route }: Props) {
   const userId = route.params?.userId ?? 'driver123';
+  const navRenderIdRef = useRef(0);
+  navRenderIdRef.current += 1;
 
   const [data, setData] = useState<RouteResultDto | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
@@ -96,6 +123,17 @@ export default function NavigationScreen({ navigation, route }: Props) {
     longitude: number;
   } | null>(null);
   const [heading, setHeading] = useState<number | null>(null);
+  const [distanceToNextStep, setDistanceToNextStep] = useState<number | null>(
+    null
+  );
+  const [handsFreeEnabled, setHandsFreeEnabled] = useState(false);
+  const handsFreeEnabledRef = useRef(false);
+  handsFreeEnabledRef.current = handsFreeEnabled;
+  const processingWakeRef = useRef(false);
+  const handsFreeCaptureRef = useRef(false);
+  const handsFreeVadBeforeRef = useRef<ReturnType<
+    typeof vadService.getConfig
+  > | null>(null);
   const lastSpokenStepIndexRef = useRef<number | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const skippedLoadDestCityRef = useRef<string | null>(null);
@@ -107,30 +145,37 @@ export default function NavigationScreen({ navigation, route }: Props) {
     at: number;
   } | null>(null);
 
+  const activeStep = useMemo(() => {
+    if (!data || data.steps.length === 0) return null;
+    return data.steps[Math.min(activeStepIndex, data.steps.length - 1)];
+  }, [data, activeStepIndex]);
+
   const applyRoute = useCallback(
-    async (nextOrigin: string, nextDest: string): Promise<boolean> => {
+    async (
+      nextOrigin: string,
+      nextDest: string
+    ): Promise<RouteResultDto | null> => {
       const o = nextOrigin.trim();
       const d = nextDest.trim();
       if (!o || !d) {
         Alert.alert('Navigation', 'Please enter both From and To.');
-        return false;
+        return null;
       }
       setIsApplying(true);
       try {
         const result = await navigationService.getRoute(o, d);
         if (!result) {
           Alert.alert('Navigation', 'Could not fetch route. Please try again.');
-          return false;
+          return null;
         }
-        setData(result);
         setActiveStepIndex(0);
         lastSpokenStepIndexRef.current = null;
         await saveNavigationQueries(o, d);
-        return true;
+        return result;
       } catch (e) {
         logAsyncError('NavigationScreen', 'applyRoute', e);
         Alert.alert('Navigation', 'Could not fetch route. Please try again.');
-        return false;
+        return null;
       } finally {
         setIsApplying(false);
       }
@@ -139,8 +184,9 @@ export default function NavigationScreen({ navigation, route }: Props) {
   );
 
   const handleStartDriving = useCallback(async () => {
-    const ok = await applyRoute(originText, destText);
-    if (ok) {
+    const result = await applyRoute(originText, destText);
+    if (result) {
+      setData(result);
       setIsDriving(true);
       void speakDriverLine(TTS_MESSAGES.welcomeDriving).catch(
         logAsyncRejection('NavigationScreen', 'startDrivingTts')
@@ -153,21 +199,204 @@ export default function NavigationScreen({ navigation, route }: Props) {
     if (!proposed) return;
     setPendingDestQuery(null);
     setDestText(proposed);
-    applyRoute(originText, proposed).catch(
-      logAsyncRejection('NavigationScreen', 'applyProposedDest')
-    );
+    applyRoute(originText, proposed)
+      .then((result) => {
+        if (result) setData(result);
+      })
+      .catch(logAsyncRejection('NavigationScreen', 'applyProposedDest'));
   }, [applyRoute, originText, pendingDestQuery]);
 
   const handleRejectProposedDest = useCallback(() => {
     setPendingDestQuery(null);
   }, []);
 
-  const { isRecording, isUploading, recordingDuration, handleMicrophonePress } =
-    useDriveAssist(userId, {
-      onProposeNavigationDestination: (proposed) => {
+  const driveAssistOptions = useMemo(
+    () => ({
+      onProposeNavigationDestination: (proposed: string) => {
         setPendingDestQuery(proposed);
       },
+    }),
+    []
+  );
+
+  const { isRecording, isUploading, recordingDuration, handleMicrophonePress } =
+    useDriveAssist(userId, driveAssistOptions);
+
+  const handleMicrophonePressRef = useRef(handleMicrophonePress);
+  handleMicrophonePressRef.current = handleMicrophonePress;
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_HANDS_FREE_ENABLED)
+      .then((v) => {
+        if (v === 'true') setHandsFreeEnabled(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handsFreeUnavailable = wakeWordService.getUnavailableReason();
+
+  useEffect(() => {
+    logger.info('NavigationScreen', 'Hands-free availability', {
+      unavailable: !!handsFreeUnavailable,
+      reason: handsFreeUnavailable
+        ? String(handsFreeUnavailable).slice(0, 120)
+        : null,
     });
+  }, [handsFreeUnavailable]);
+
+  const startHandsFreeWake = useCallback(async () => {
+    if (!handsFreeEnabledRef.current) return;
+    if (handsFreeUnavailable) {
+      logger.info('NavigationScreen', 'Hands-free unavailable', {
+        reason: handsFreeUnavailable,
+      });
+      return;
+    }
+    try {
+      await configureAudioSessionForHandsFree();
+      await wakeWordService.start(() => {
+        if (processingWakeRef.current) return;
+        if (!handsFreeEnabledRef.current) return;
+        if (audioRecordingService.getIsRecording()) return;
+        processingWakeRef.current = true;
+        handsFreeCaptureRef.current = true;
+        logger.info('NavigationScreen', 'Hands-free wake detected');
+        void (async () => {
+          const previousVad = vadService.getConfig();
+          handsFreeVadBeforeRef.current = previousVad;
+          let maxTimer: ReturnType<typeof setTimeout> | null = null;
+          let completed = false;
+          const clearMaxTimer = () => {
+            if (maxTimer) {
+              clearTimeout(maxTimer);
+              maxTimer = null;
+            }
+          };
+          const restoreVadIfNeeded = () => {
+            const snap = handsFreeVadBeforeRef.current;
+            if (snap) {
+              vadService.updateConfig(snap);
+              handsFreeVadBeforeRef.current = null;
+            }
+          };
+          const completeHandsFreeSegment = async () => {
+            if (completed) return;
+            completed = true;
+            clearMaxTimer();
+            vadService.stop();
+            try {
+              await handleMicrophonePressRef.current();
+            } finally {
+              restoreVadIfNeeded();
+              await audioDuckingService.restore();
+              processingWakeRef.current = false;
+              handsFreeCaptureRef.current = false;
+              await startHandsFreeWake();
+            }
+          };
+          try {
+            await wakeWordService.stop();
+            vadService.updateConfig(getHandsFreeVadPartial());
+            await audioDuckingService.duck();
+            await handleMicrophonePressRef.current();
+            await configureAudioSessionForHandsFreeCapture();
+            const rec = audioRecordingService.getRecording();
+            if (!rec) {
+              clearMaxTimer();
+              completed = true;
+              restoreVadIfNeeded();
+              await audioDuckingService.restore();
+              processingWakeRef.current = false;
+              handsFreeCaptureRef.current = false;
+              await startHandsFreeWake();
+              return;
+            }
+            maxTimer = setTimeout(() => {
+              void completeHandsFreeSegment();
+            }, HANDS_FREE_MAX_UTTERANCE_MS);
+            vadService.start(() => {
+              void completeHandsFreeSegment();
+            }, rec);
+          } catch (e) {
+            logger.error('NavigationScreen', 'Hands-free pipeline failed', e);
+            clearMaxTimer();
+            if (!completed) {
+              completed = true;
+              vadService.stop();
+              restoreVadIfNeeded();
+              await audioDuckingService.restore();
+              processingWakeRef.current = false;
+              handsFreeCaptureRef.current = false;
+              await startHandsFreeWake();
+            }
+          }
+        })();
+      });
+      logger.info('NavigationScreen', 'Hands-free listening started');
+    } catch (e) {
+      logger.error('NavigationScreen', 'Hands-free start failed', e);
+    }
+  }, [handsFreeUnavailable]);
+
+  const stopHandsFree = useCallback(async () => {
+    processingWakeRef.current = false;
+    vadService.stop();
+    const vadSnap = handsFreeVadBeforeRef.current;
+    if (vadSnap) {
+      vadService.updateConfig(vadSnap);
+      handsFreeVadBeforeRef.current = null;
+    }
+    await wakeWordService.stop();
+    const isServiceRecording = audioRecordingService.getIsRecording();
+    logger.info('NavigationScreen', 'Hands-free stop requested', {
+      handsFreeEnabled: handsFreeEnabledRef.current,
+      handsFreeCapture: handsFreeCaptureRef.current,
+      isServiceRecording,
+    });
+    if (handsFreeCaptureRef.current && isServiceRecording) {
+      await audioRecordingService.cancelRecording();
+    }
+    await audioDuckingService.restore();
+    handsFreeCaptureRef.current = false;
+    logger.info('NavigationScreen', 'Hands-free stopped');
+  }, []);
+
+  const onToggleHandsFree = useCallback(
+    async (value: boolean) => {
+      if (value && handsFreeUnavailable) {
+        logger.info('NavigationScreen', 'Hands-free toggle blocked', {
+          reason: handsFreeUnavailable,
+        });
+        Alert.alert('Hands-free', handsFreeUnavailable);
+        return;
+      }
+      setHandsFreeEnabled(value);
+      try {
+        await AsyncStorage.setItem(
+          STORAGE_HANDS_FREE_ENABLED,
+          value ? 'true' : 'false'
+        );
+      } catch {}
+      if (value) {
+        await startHandsFreeWake();
+      } else {
+        await stopHandsFree();
+      }
+    },
+    [handsFreeUnavailable, startHandsFreeWake, stopHandsFree]
+  );
+
+  useEffect(() => {
+    if (!isDriving) return;
+    if (!handsFreeEnabled) return;
+    if (handsFreeUnavailable) return;
+    startHandsFreeWake().catch(() => {});
+  }, [isDriving, handsFreeEnabled, handsFreeUnavailable, startHandsFreeWake]);
+
+  const handleExitDrivingUi = useCallback(() => {
+    setIsDriving(false);
+    void stopHandsFree();
+  }, [stopHandsFree]);
 
   const refreshAuthInHeader = useCallback(() => {
     SecureStore.getItemAsync(PHP_API_TOKEN_KEY)
@@ -180,7 +409,12 @@ export default function NavigationScreen({ navigation, route }: Props) {
   useFocusEffect(
     useCallback(() => {
       refreshAuthInHeader();
-    }, [refreshAuthInHeader])
+      return () => {
+        if (handsFreeEnabledRef.current || handsFreeCaptureRef.current) {
+          stopHandsFree().catch(() => {});
+        }
+      };
+    }, [refreshAuthInHeader, stopHandsFree])
   );
 
   useEffect(() => {
@@ -230,12 +464,16 @@ export default function NavigationScreen({ navigation, route }: Props) {
                 setDestText(loadDest);
                 const o = originTextRef.current.trim();
                 if (o) {
-                  applyRoute(o, loadDest).catch(
-                    logAsyncRejection(
-                      'NavigationScreen',
-                      'applyRouteFromLoadDestPrompt'
-                    )
-                  );
+                  applyRoute(o, loadDest)
+                    .then((result) => {
+                      if (result) setData(result);
+                    })
+                    .catch(
+                      logAsyncRejection(
+                        'NavigationScreen',
+                        'applyRouteFromLoadDestPrompt'
+                      )
+                    );
                 }
               },
             },
@@ -334,90 +572,111 @@ export default function NavigationScreen({ navigation, route }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await locationService.fetchLastLocationAndHydrate(userId);
-      if (cancelled) return;
-      const stored = await loadNavigationQueries();
-      const paramO = route.params?.originQuery?.trim();
-      const paramD = route.params?.destQuery?.trim();
-      let o = paramO || '';
-      if (!o && stored.origin?.trim()) {
-        const s = stored.origin.trim();
-        const isCoordOnly = /^-?\d+\.?\d*,\s*-?\d+\.?\d*$/.test(s);
-        if (!isCoordOnly) {
-          o = s;
+      try {
+        await withTimeout(
+          locationService.fetchLastLocationAndHydrate(userId),
+          2500
+        ).catch(() => false);
+        if (cancelled) return;
+        const stored = await withTimeout(loadNavigationQueries(), 1000).catch(
+          () => ({ origin: '', dest: '' })
+        );
+        const paramO = route.params?.originQuery?.trim();
+        const paramD = route.params?.destQuery?.trim();
+        let o = paramO || '';
+        if (!o && stored.origin?.trim()) {
+          const s = stored.origin.trim();
+          const isCoordOnly = /^-?\d+\.?\d*,\s*-?\d+\.?\d*$/.test(s);
+          if (!isCoordOnly) {
+            o = s;
+          }
         }
-      }
-      const d = paramD || stored.dest;
+        const d = paramD || stored.dest;
 
-      let coordForMap: { latitude: number; longitude: number } | null = null;
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        try {
-          const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          if (!cancelled) {
-            coordForMap = {
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-            };
-            await saveLastUserLocation(
-              pos.coords.latitude,
-              pos.coords.longitude
+        let coordForMap: { latitude: number; longitude: number } | null = null;
+        const { status } = await withTimeout(
+          Location.requestForegroundPermissionsAsync(),
+          2500
+        ).catch(() => ({ status: 'undetermined' as const }));
+
+        if (status === 'granted') {
+          try {
+            const pos = await withTimeout(
+              Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+              }),
+              6000
+            );
+            if (!cancelled) {
+              coordForMap = {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+              };
+              await saveLastUserLocation(
+                pos.coords.latitude,
+                pos.coords.longitude
+              );
+            }
+          } catch (e) {
+            logAsyncError(
+              'NavigationScreen',
+              'getCurrentPositionForBootstrap',
+              e
             );
           }
-        } catch (e) {
-          logAsyncError(
-            'NavigationScreen',
-            'getCurrentPositionForBootstrap',
-            e
+        }
+
+        if (!coordForMap && !cancelled) {
+          const lastLoc = await withTimeout(loadLastUserLocation(), 600).catch(
+            () => null
           );
-        }
-      }
-      if (!coordForMap && !cancelled) {
-        const lastLoc = await loadLastUserLocation();
-        if (lastLoc) {
-          coordForMap = {
-            latitude: lastLoc.latitude,
-            longitude: lastLoc.longitude,
-          };
-        }
-      }
-
-      let originFilledFromPosition = false;
-      if (!cancelled && !o.trim() && coordForMap) {
-        try {
-          const places = await Location.reverseGeocodeAsync({
-            latitude: coordForMap.latitude,
-            longitude: coordForMap.longitude,
-          });
-          const first = places[0];
-          if (first) {
-            const line = formatGeocodedAddress(first).trim();
-            if (line) {
-              o = line;
-              originFilledFromPosition = true;
-            }
+          if (lastLoc) {
+            coordForMap = {
+              latitude: lastLoc.latitude,
+              longitude: lastLoc.longitude,
+            };
           }
-        } catch (e) {
-          logAsyncError('NavigationScreen', 'reverseGeocodeOrigin', e);
         }
-        if (!o.trim()) {
-          o = `${coordForMap.latitude.toFixed(5)}, ${coordForMap.longitude.toFixed(5)}`;
-          originFilledFromPosition = true;
-        }
-      }
 
-      if (!cancelled) {
-        setOriginText(o);
-        setDestText(d);
-        if (coordForMap) {
-          setUserCoordinate(coordForMap);
+        let originFilledFromPosition = false;
+        if (!cancelled && !o.trim() && coordForMap) {
+          try {
+            const places = await withTimeout(
+              Location.reverseGeocodeAsync({
+                latitude: coordForMap.latitude,
+                longitude: coordForMap.longitude,
+              }),
+              4500
+            );
+            const first = places[0];
+            if (first) {
+              const line = formatGeocodedAddress(first).trim();
+              if (line) {
+                o = line;
+                originFilledFromPosition = true;
+              }
+            }
+          } catch (e) {
+            logAsyncError('NavigationScreen', 'reverseGeocodeOrigin', e);
+          }
+          if (!o.trim()) {
+            o = `${coordForMap.latitude.toFixed(5)}, ${coordForMap.longitude.toFixed(5)}`;
+            originFilledFromPosition = true;
+          }
         }
-        if (originFilledFromPosition && o.trim()) {
-          await saveNavigationQueries(o, d);
+
+        if (!cancelled) {
+          setOriginText(o);
+          setDestText(d);
+          if (coordForMap) {
+            setUserCoordinate(coordForMap);
+          }
+          if (originFilledFromPosition && o.trim()) {
+            await saveNavigationQueries(o, d);
+          }
         }
-        setBootstrapping(false);
+      } finally {
+        if (!cancelled) setBootstrapping(false);
       }
     })().catch(logAsyncRejection('NavigationScreen', 'bootstrapNavigation'));
     return () => {
@@ -494,8 +753,11 @@ export default function NavigationScreen({ navigation, route }: Props) {
             next.end.longitude
           );
 
+          setDistanceToNextStep(metersToEnd);
+
           if (metersToEnd < 35 && nextIdx < steps.length - 1) {
             setActiveStepIndex(nextIdx + 1);
+            setDistanceToNextStep(null);
           }
         }
       );
@@ -521,16 +783,19 @@ export default function NavigationScreen({ navigation, route }: Props) {
     let cancelled = false;
     void (async () => {
       try {
-        Speech.stop();
-        const opts = await getResolvedTtsSpeechOptions();
         if (cancelled) return;
-        Speech.speak(step.instruction, buildTtsSpeechOptions(opts));
+        await speakDriverLine(step.instruction);
       } catch (e) {
-        logAsyncError('NavigationScreen', 'speakTurnInstruction', e);
+        if (!cancelled) {
+          logAsyncError('NavigationScreen', 'speakTurnInstruction', e);
+        }
       }
     })();
     return () => {
       cancelled = true;
+      try {
+        Speech.stop();
+      } catch {}
     };
   }, [data, isDriving, activeStepIndex]);
 
@@ -572,22 +837,47 @@ export default function NavigationScreen({ navigation, route }: Props) {
         </>
       ) : (
         <>
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => setIsDriving(false)}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="Edit route"
-          >
-            <Text style={styles.editButtonText}>Edit</Text>
-          </TouchableOpacity>
-          <DriveAssistMicControls
-            variant="floating"
-            isRecording={isRecording}
-            isUploading={isUploading}
-            recordingDuration={recordingDuration}
-            onPress={handleMicrophonePress}
+          <NextTurnBanner
+            step={activeStep}
+            distanceMeters={distanceToNextStep}
+            visible={!!data?.steps.length}
           />
+          <View style={styles.bottomControlsRow}>
+            <View style={styles.handsFreePill}>
+              <Text style={styles.handsFreePillLabel}>Hands-free</Text>
+              <Switch
+                value={handsFreeEnabled}
+                onValueChange={(v) => void onToggleHandsFree(v)}
+                disabled={!!handsFreeUnavailable}
+                trackColor={{ false: '#333333', true: '#3355aa' }}
+                thumbColor={handsFreeEnabled ? '#ffffff' : '#888888'}
+              />
+            </View>
+            <DriveAssistMicControls
+              variant="inline"
+              isRecording={isRecording}
+              isUploading={isUploading}
+              recordingDuration={recordingDuration}
+              onPress={handleMicrophonePress}
+              style={styles.micInline}
+            />
+            <TouchableOpacity
+              style={styles.editPill}
+              onPress={handleExitDrivingUi}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Edit route"
+            >
+              <Text style={styles.editPillText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+          {handsFreeUnavailable ? (
+            <View style={styles.handsFreeBanner}>
+              <Text style={styles.handsFreeBannerText}>
+                {handsFreeUnavailable}
+              </Text>
+            </View>
+          ) : null}
         </>
       )}
     </View>
@@ -634,19 +924,62 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  editButton: {
+  bottomControlsRow: {
     position: 'absolute',
-    top: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    left: 12,
+    right: 12,
+    bottom: 172,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 35,
+  },
+  handsFreePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(10,10,20,0.92)',
+    maxWidth: 160,
+  },
+  handsFreePillLabel: {
+    color: '#f0f0f5',
+    fontSize: 14,
+    fontWeight: '700',
+    marginRight: 10,
+  },
+  micInline: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  editPill: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 12,
-    zIndex: 25,
+    borderRadius: 14,
+    backgroundColor: 'rgba(10,10,20,0.92)',
   },
-  editButtonText: {
+  editPillText: {
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '800',
+  },
+  handsFreeBanner: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 120,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(10,10,20,0.92)',
+    zIndex: 35,
+  },
+  handsFreeBannerText: {
+    color: '#f0f0f5',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center',
   },
 });

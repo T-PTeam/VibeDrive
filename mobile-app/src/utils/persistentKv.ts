@@ -41,26 +41,6 @@ async function readAll(): Promise<Record<string, string>> {
 
 async function writeAll(data: Record<string, string>): Promise<void> {
   await writeAsStringAsync(getFilePath(), JSON.stringify(data));
-  // #region agent log
-  fetch('http://127.0.0.1:7245/ingest/89da4276-18f3-4257-8f75-d5cab43a0d59', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': 'deb6ce',
-    },
-    body: JSON.stringify({
-      sessionId: 'deb6ce',
-      location: 'persistentKv.ts:writeAll',
-      message: 'kv persisted',
-      data: {
-        hypothesisId: 'H1',
-        keysCount: Object.keys(data).length,
-        runId: 'post-fix',
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 }
 
 function runSerialized<T>(fn: () => Promise<T>): Promise<T> {

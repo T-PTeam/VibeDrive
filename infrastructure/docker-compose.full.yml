@@ -82,6 +82,8 @@ services:
       - Cors__AllowedOrigins__3=http://127.0.0.1:5173
       - Cors__AllowedOrigins__4=http://10.0.2.2:5009
       - Cors__AllowedOrigins__5=http://10.0.2.2:7217
+      - PhpApi__BaseUrl=http://nginx/api
+      - Mapbox__AccessToken=${MAPBOX_ACCESS_TOKEN:-}
     depends_on:
       redis:
         condition: service_healthy
