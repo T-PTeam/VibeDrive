@@ -117,3 +117,5 @@ temp/
 tmp/
 .env.local
 .env.*.local
+.cursor
+microservice-net/VibeDrive.Api/appsettings.Development.local.json.example

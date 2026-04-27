@@ -1,9 +1,10 @@
 using StackExchange.Redis;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using VibeDrive.Api.Hubs;
 using VibeDrive.Api.Interfaces;
+using VibeDrive.Api.Models.Navigation;
+using VibeDrive.Api.Options;
 using VibeDrive.Api.Services;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,17 +17,6 @@ builder.Services.Configure<HostOptions>(options =>
 {
     options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
 });
-
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
-    });
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
@@ -43,7 +33,21 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 
 builder.Services.AddSingleton<IConnectionManager, ConnectionManager>();
 
+builder.Services.Configure<PhpApiOptions>(builder.Configuration.GetSection(PhpApiOptions.SectionName));
+builder.Services.Configure<PendingActionOptions>(builder.Configuration.GetSection(PendingActionOptions.SectionName));
+
+builder.Services.AddHttpClient<RouteLoadsService>((sp, client) =>
+{
+    var o = sp.GetRequiredService<IOptions<PhpApiOptions>>().Value;
+    client.BaseAddress = new Uri(o.BaseUrl.TrimEnd('/') + "/");
+});
+builder.Services.AddSingleton<IRouteLoadsService>(sp => sp.GetRequiredService<RouteLoadsService>());
+
+builder.Services.AddSingleton<IPendingActionStore, RedisPendingActionStore>();
+
 builder.Services.AddHttpClient();
+
+builder.Services.AddHttpClient<INavigationService, MapboxNavigationService>();
 
 var openAIApiKey = builder.Configuration["OpenAI:ApiKey"] 
     ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") 
@@ -117,12 +121,6 @@ else
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
 var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "";
 if (!string.IsNullOrEmpty(urls) && urls.Contains("https://"))
 {
@@ -133,7 +131,48 @@ app.UseStaticFiles();
 
 app.UseCors("AllowMobileApp");
 
-app.MapControllers();
+app.MapGet(
+    "/api/v1/navigation/geocode",
+    async (string query, INavigationService navigation, CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Results.BadRequest();
+        }
+
+        var result = await navigation.GeocodeAsync(query, cancellationToken);
+        return result is null
+            ? Results.NotFound()
+            : Results.Json(new { status = "success", data = result });
+    });
+
+app.MapGet(
+    "/api/v1/navigation/suggest",
+    async (string query, INavigationService navigation, CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Results.Json(new { status = "success", data = Array.Empty<GeocodeSuggestion>() });
+        }
+
+        var items = await navigation.SuggestAsync(query, cancellationToken);
+        return Results.Json(new { status = "success", data = items });
+    });
+
+app.MapPost(
+    "/api/v1/navigation/route",
+    async (RouteRequest body, INavigationService navigation, CancellationToken cancellationToken) =>
+    {
+        if (string.IsNullOrWhiteSpace(body.OriginQuery) || string.IsNullOrWhiteSpace(body.DestQuery))
+        {
+            return Results.BadRequest();
+        }
+
+        var result = await navigation.GetRouteAsync(body, cancellationToken);
+        return result is null
+            ? Results.NotFound()
+            : Results.Json(new { status = "success", data = result });
+    });
 
 app.MapHub<DriverHub>("/driverhub");
 

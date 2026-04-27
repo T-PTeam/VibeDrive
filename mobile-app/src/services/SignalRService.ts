@@ -163,6 +163,7 @@ class SignalRService {
       logger.info('SignalR', 'Connected successfully', { connectionId });
     } catch (error: any) {
       this.notifyStateChange('Disconnected');
+      const err = error as { message?: string };
       const message =
         error?.message || (typeof error === 'string' ? error : 'Unknown error');
       logger.error('SignalR', 'Connection failed', {

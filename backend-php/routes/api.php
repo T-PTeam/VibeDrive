@@ -2,9 +2,38 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\DriverRouteController;
+use App\Http\Controllers\Api\UserDriverSettingsController;
+use App\Http\Controllers\Api\UserLastLocationController;
 use App\Services\OpenAIService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Route;
+
+Route::post('/v1/driver/route/parse-setup', [DriverRouteController::class, 'parseRouteSetup']);
+Route::get('/v1/driver/route', [DriverRouteController::class, 'getActiveRoute']);
+Route::post('/v1/driver/route', [DriverRouteController::class, 'startMonitoring']);
+Route::get('/v1/driver/loads', [DriverRouteController::class, 'getProposedLoads']);
+Route::post('/v1/driver/loads/accept', [DriverRouteController::class, 'acceptLoad']);
+
+Route::get('/v1/user/last-location', [UserLastLocationController::class, 'show']);
+Route::post('/v1/user/last-location', [UserLastLocationController::class, 'store']);
+Route::get('/v1/user/driver-settings', [UserDriverSettingsController::class, 'show']);
+Route::get('/v1/user/tts-voice', [UserDriverSettingsController::class, 'ttsVoiceShow']);
+Route::put('/v1/user/tts-voice', [UserDriverSettingsController::class, 'ttsVoiceUpdate']);
+
+Route::post('/v1/redis/publish', function (Request $request) {
+    $validated = $request->validate([
+        'channel' => 'required|string|max:128',
+        'message' => 'required|string|max:1048576',
+    ]);
+    $count = Redis::publish($validated['channel'], $validated['message']);
+    return response()->json([
+        'status' => 'success',
+        'data' => ['subscribers' => $count],
+    ]);
+});
 
 Route::get('/ping', fn () => response()->json(['ok' => true], 200));
 Route::get('/openai-check', function () {

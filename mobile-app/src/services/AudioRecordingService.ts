@@ -34,6 +34,7 @@ class AudioRecordingService {
     }
 
     try {
+      logger.info('AudioRecording', 'Setting audio mode for recording');
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -134,6 +135,10 @@ class AudioRecordingService {
       return;
     }
     try {
+      logger.info(
+        'AudioRecording',
+        'Setting audio mode for hands-free recording'
+      );
       await configureAudioSessionForHandsFree();
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY

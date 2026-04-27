@@ -12,9 +12,16 @@ import * as SecureStore from 'expo-secure-store';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 import { getPhpApiUrl } from '../config/api';
-import { PHP_API_TOKEN_KEY } from '../constants/auth';
+import {
+  PHP_API_TOKEN_KEY,
+  PHP_API_USER_ID_KEY,
+  PHP_API_USER_NAME_KEY,
+} from '../constants/auth';
+import { locationService } from '../services/LocationService';
+import { savePhpSession } from '../utils/phpSession';
 import LegalAgreement from '../components/LegalAgreement';
 import { saveLegalAccepted, getLegalAccepted } from '../utils/legal';
+import { logAsyncError, logAsyncRejection } from '../utils/asyncErrors';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -31,11 +38,49 @@ export default function LoginScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [legalChecked, setLegalChecked] = useState(false);
   const [legalError, setLegalError] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
-    getLegalAccepted().then((accepted) => {
-      if (accepted) setLegalChecked(true);
-    });
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await SecureStore.getItemAsync(PHP_API_TOKEN_KEY);
+        const storedUserId =
+          await SecureStore.getItemAsync(PHP_API_USER_ID_KEY);
+        if (cancelled) return;
+        if (token && storedUserId) {
+          const userName =
+            (await SecureStore.getItemAsync(PHP_API_USER_NAME_KEY)) ||
+            undefined;
+          locationService.startWatching();
+          navigation.reset({
+            index: 0,
+            routes: [
+              {
+                name: 'Navigation',
+                params: { userId: storedUserId, userName },
+              },
+            ],
+          });
+          return;
+        }
+      } catch (e) {
+        logAsyncError('LoginScreen', 'sessionBootstrap', e);
+      } finally {
+        if (!cancelled) setCheckingSession(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigation]);
+
+  useEffect(() => {
+    getLegalAccepted()
+      .then((accepted) => {
+        if (accepted) setLegalChecked(true);
+      })
+      .catch(logAsyncRejection('LoginScreen', 'getLegalAccepted'));
   }, []);
 
   const handleToggleLegal = () => {
@@ -90,7 +135,7 @@ export default function LoginScreen({ navigation }: Props) {
             pingError?.toLowerCase().includes('timeout'))
             ? 'Request timed out. Is anything listening on that URL?'
             : !pingRes
-              ? 'Connection refused or no response. Check: (1) Docker running? (2) Full stack: docker compose --profile full up -d in infrastructure (3) On a real device: use your Mac LAN IP in EXPO_PUBLIC_PHP_API_URL, e.g. http://YOUR_MAC_IP:8082/api'
+              ? 'Connection refused or no response. Simulator: Docker full stack (nginx 8082). Physical iPhone: set EXPO_PUBLIC_API_HOST to your Mac LAN IP in mobile-app/.env (same Wi‑Fi), keep EXPO_PUBLIC_* URLs on 127.0.0.1, restart Metro with -c.'
               : `Server returned ${status}. Check Nginx and Laravel are up.`;
         Alert.alert('Server unreachable', `URL: ${loginUrl}\n\n${reason}`);
         return;
@@ -111,7 +156,8 @@ export default function LoginScreen({ navigation }: Props) {
       let data: Record<string, unknown> = {};
       try {
         data = raw ? JSON.parse(raw) : {};
-      } catch {
+      } catch (e) {
+        logAsyncError('LoginScreen', 'parseLoginResponseJson', e);
         const preview = raw.slice(0, 80).replace(/\s+/g, ' ');
         Alert.alert(
           'Server error',
@@ -134,14 +180,19 @@ export default function LoginScreen({ navigation }: Props) {
         const userId = username.trim();
         const userName = payload?.name ?? username.trim();
         if (payload?.token) {
-          await SecureStore.setItemAsync(PHP_API_TOKEN_KEY, payload.token);
+          await savePhpSession(payload.token, userId, userName);
         }
         await saveLegalAccepted();
-        navigation.replace('Drive', { userId, userName });
+        locationService.startWatching();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Navigation', params: { userId, userName } }],
+        });
       } else {
         Alert.alert('Login failed', 'Invalid response from server');
       }
     } catch (error: any) {
+      logAsyncError('LoginScreen', 'handleLogin', error);
       clearTimeout(timeoutId);
       const isAbort = error?.name === 'AbortError';
       const message = isAbort
@@ -153,6 +204,14 @@ export default function LoginScreen({ navigation }: Props) {
       setLoading(false);
     }
   };
+
+  if (checkingSession) {
+    return (
+      <View style={[styles.container, styles.sessionGate]}>
+        <ActivityIndicator size="large" color="#000000" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -214,6 +273,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  sessionGate: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,

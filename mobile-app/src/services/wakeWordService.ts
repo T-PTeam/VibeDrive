@@ -1,10 +1,9 @@
 import type { EventSubscription } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { WAKE_PHRASES } from '../constants/handsFree';
 import { logger } from './LoggerService';
 
 const MODEL_ID = 'model-wake-en';
-
-const WAKE_PHRASES = ['hey max', 'hey max', 'max', 'okay max'];
 
 function grammarPhrases(): string[] {
   return [...WAKE_PHRASES, '[unk]'];
@@ -28,7 +27,7 @@ function normalizeResultText(raw: string): string {
 
 function matchesWakePhrase(normalized: string): boolean {
   return WAKE_PHRASES.some((phrase) =>
-    normalized.includes(phrase.toLowerCase())
+    normalized.includes(phrase.toLowerCase().trim())
   );
 }
 
@@ -40,6 +39,7 @@ class WakeWordService {
   private resultSub: EventSubscription | null = null;
   private partialSub: EventSubscription | null = null;
   private errorSub: EventSubscription | null = null;
+  private dbgVoskLines = 0;
 
   getUnavailableReason(): string | null {
     if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
@@ -57,10 +57,24 @@ class WakeWordService {
     this.errorSub = null;
   }
 
-  private handleVoskText(raw: string): void {
+  private firstMatchingPhrase(normalized: string): string | null {
+    for (const p of WAKE_PHRASES) {
+      if (normalized.includes(p.toLowerCase().trim())) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  private handleVoskText(raw: string, source: 'partial' | 'final'): void {
     const normalized = normalizeResultText(raw);
     if (!normalized || normalized === '[unk]') {
       return;
+    }
+    const wouldMatch = matchesWakePhrase(normalized);
+    if (this.dbgVoskLines < 180) {
+      this.dbgVoskLines += 1;
+      void wouldMatch;
     }
     if (matchesWakePhrase(normalized)) {
       const now = Date.now();
@@ -114,10 +128,10 @@ class WakeWordService {
       await vosk.start({ grammar: grammarPhrases() });
       this.clearSubscriptions();
       this.resultSub = vosk.onResult((res: string) => {
-        this.handleVoskText(res);
+        this.handleVoskText(res, 'final');
       });
       this.partialSub = vosk.onPartialResult((res: string) => {
-        this.handleVoskText(res);
+        this.handleVoskText(res, 'partial');
       });
       this.errorSub = vosk.onError((e: unknown) => {
         logger.error('WakeWordService', 'Vosk error', e);

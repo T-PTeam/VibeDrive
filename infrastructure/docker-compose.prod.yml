@@ -79,6 +79,8 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PhpApi__BaseUrl=http://nginx/api
+      - Mapbox__AccessToken=${MAPBOX_ACCESS_TOKEN}
     depends_on:
       redis:
         condition: service_healthy

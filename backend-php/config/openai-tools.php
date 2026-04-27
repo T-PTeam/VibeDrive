@@ -40,5 +40,22 @@ return [
                 ],
             ],
         ],
+        [
+            'type' => 'function',
+            'function' => [
+                'name' => 'set_navigation_destination',
+                'description' => 'Propose changing the navigation destination for the driver. Use when the user asks to change where they are going.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'dest_query' => [
+                            'type' => 'string',
+                            'description' => 'Destination as a human-readable place query (e.g. city, address, landmark).',
+                        ],
+                    ],
+                    'required' => ['dest_query'],
+                ],
+            ],
+        ],
     ],
 ];

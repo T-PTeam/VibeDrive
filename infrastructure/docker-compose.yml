@@ -64,8 +64,6 @@ services:
     networks:
       - vibedrive-network
     restart: unless-stopped
-    profiles:
-      - full
 
   api:
     build:
@@ -83,6 +81,7 @@ services:
       - ASPNETCORE_Kestrel__Certificates__Default__Path=
       - Redis__ConnectionString=${Redis__ConnectionString:-redis:6379}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - Mapbox__AccessToken=${MAPBOX_ACCESS_TOKEN:-}
       - Cors__AllowedOrigins__0=http://localhost:3000
       - Cors__AllowedOrigins__1=http://localhost:5173
       - Cors__AllowedOrigins__2=http://127.0.0.1:3000
@@ -97,6 +96,7 @@ services:
       - Cors__AllowedOrigins__11=http://192.168.56.1:7217
       - Cors__AllowedOrigins__12=http://192.168.1.100:5009
       - Cors__AllowedOrigins__13=http://192.168.1.100:7217
+      - PhpApi__BaseUrl=http://nginx/api
     depends_on:
       redis:
         condition: service_healthy
@@ -118,7 +118,8 @@ services:
       - ../mobile-app:/app
       - /app/node_modules
     environment:
-      - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL:-http://api:8080}
+      - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL:-http://nginx}
+      - EXPO_PUBLIC_PHP_API_URL=${EXPO_PUBLIC_PHP_API_URL:-http://nginx/api}
       - EXPO_PUBLIC_SPOTIFY_CLIENT_ID=${EXPO_PUBLIC_SPOTIFY_CLIENT_ID:-}
       - EXPO_PUBLIC_SPOTIFY_REDIRECT_URI=${EXPO_PUBLIC_SPOTIFY_REDIRECT_URI:-vibedrive://spotify-callback}
     depends_on:
@@ -144,9 +145,6 @@ services:
     networks:
       - vibedrive-network
     restart: unless-stopped
-    profiles:
-      - full
-    
 
 volumes:
   redis-data:
