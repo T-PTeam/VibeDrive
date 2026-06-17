@@ -28,6 +28,37 @@ VibeDrive/
 - Node.js 18+ and npm/yarn (for mobile-app)
 - Docker and Docker Compose (for infrastructure)
 
+### Quick Start with Docker
+
+The easiest way to get started is using Docker:
+
+```bash
+cd infrastructure
+docker-compose up -d
+```
+
+This will start:
+- Redis on port `6379`
+- MySQL on port `3306`
+- .NET API on ports `5009` (HTTP) and `7217` (HTTPS)
+
+To start all services including PHP backend and Nginx:
+```bash
+docker-compose --profile full up -d
+```
+
+To start with mobile app (web version):
+```bash
+docker-compose --profile mobile up -d
+```
+
+To start everything:
+```bash
+docker-compose --profile full --profile mobile up -d
+```
+
+See [infrastructure/README.md](infrastructure/README.md) for more details.
+
 ### Development Setup
 
 Each subdirectory contains its own setup instructions. Please refer to the README files in each directory for specific setup instructions.

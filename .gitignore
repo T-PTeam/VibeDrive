@@ -49,6 +49,9 @@ microservice-net/*.userosscache
 microservice-net/*.sln.docstates
 microservice-net/appsettings.Development.json
 microservice-net/appsettings.*.json
+microservice-net/VibeDrive.Api/appsettings.Development.local.json
+microservice-net/VibeDrive.Api/appsettings.Stage.local.json
+microservice-net/VibeDrive.Api/appsettings.Production.local.json
 !microservice-net/appsettings.json
 microservice-net/.vs/
 microservice-net/.vscode/
@@ -90,11 +93,20 @@ mobile-app/coverage/
 mobile-app/.nyc_output/
 mobile-app/*.log
 mobile-app/.metro-health-check*
+mobile-app/assets/model-wake-en/*
+!mobile-app/assets/model-wake-en/README.txt
 
 # Infrastructure
 infrastructure/.env
 infrastructure/.env.*
 infrastructure/*.log
+
+# Node / JS
+node_modules/
+**/node_modules/
+
+# Local build outputs
+.build/
 
 # General
 *.log
@@ -105,3 +117,5 @@ temp/
 tmp/
 .env.local
 .env.*.local
+.cursor
+microservice-net/VibeDrive.Api/appsettings.Development.local.json.example

@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "VibeDrive",
+    "slug": "vibedrive-mobile",
+    "icon": "./assets/icon.png",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "scheme": "vibedrive",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vibedrive.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "VD needs access to your microphone to record voice commands while driving.",
+        "NSLocationWhenInUseUsageDescription": "VD needs your location to show your position on the map and calculate routes.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "VD needs your location to track your position while driving.",
+        "NSBluetoothAlwaysUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
+        "NSBluetoothPeripheralUsageDescription": "VD needs Bluetooth access to connect to LED controllers and other BLE devices.",
+        "LSApplicationQueriesSchemes": ["spotify", "spotify"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android/play_store_512.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "com.vibedrive.mobile",
+      "permissions": [
+        "RECORD_AUDIO",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "privacyPolicyUrl": "https://vibe-drive.store/privacy"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "88fd6011-4763-47e6-a643-e11ae39ccf10"
+      },
+      "termsOfUseUrl": "https://vibe-drive.store/terms"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-iap",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "VD needs your location to show your position on the map and calculate routes.",
+          "locationAlwaysAndWhenInUsePermission": "VD needs your location to track your position while driving."
+        }
+      ],
+      [
+        "react-native-vosk",
+        {
+          "models": ["./assets/model-wake-en"],
+          "iOSMicrophonePermission": "VD needs access to your microphone to record voice commands while driving."
+        }
+      ]
+    ],
+    "owner": "mrex_x"
+  }
+}

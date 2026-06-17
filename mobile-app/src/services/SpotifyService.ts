@@ -1,0 +1,770 @@
+import * as AuthSession from 'expo-auth-session';
+import * as Linking from 'expo-linking';
+import * as SecureStore from 'expo-secure-store';
+import { Alert, Platform } from 'react-native';
+import { logger } from './LoggerService';
+
+interface SpotifyTrack {
+  uri?: string;
+  trackId?: string;
+  query?: string;
+  genre?: string;
+  genreOnly?: boolean;
+  searchGenreHint?: string;
+}
+
+interface SpotifyTokenResponse {
+  access_token: string;
+  token_type: string;
+  scope?: string;
+  expires_in: number;
+  refresh_token?: string;
+}
+
+interface SpotifyDevice {
+  id: string;
+  is_active: boolean;
+  name: string;
+  type: string;
+}
+
+class SpotifyService {
+  private isAuthenticated: boolean = false;
+  private clientId: string = '';
+  private redirectUri: string = '';
+
+  private readonly accessTokenKey = 'spotify_access_token';
+  private readonly refreshTokenKey = 'spotify_refresh_token';
+  private readonly expiresAtKey = 'spotify_expires_at';
+
+  private lastPlayWasSearchFallbackOnly = false;
+
+  initialize(clientId: string, redirectUri: string) {
+    this.clientId = clientId;
+    this.redirectUri = redirectUri;
+    logger.info('SpotifyService', 'Initialized', { clientId, redirectUri });
+  }
+
+  async authenticate(): Promise<boolean> {
+    try {
+      if (!this.clientId) {
+        logger.warn(
+          'SpotifyService',
+          'Spotify client ID not configured - authentication skipped'
+        );
+        return false;
+      }
+
+      const redirectUri = this.getRedirectUri();
+      const request = new AuthSession.AuthRequest({
+        clientId: this.clientId,
+        scopes: [
+          'user-modify-playback-state',
+          'user-read-playback-state',
+          'user-read-email',
+          'user-read-private',
+          'streaming',
+        ],
+        redirectUri,
+        responseType: AuthSession.ResponseType.Code,
+        usePKCE: true,
+        extraParams: {
+          show_dialog: 'true',
+        },
+      });
+
+      const discovery = this.getDiscovery();
+      const result = await request.promptAsync(discovery);
+
+      if (result.type !== 'success' || !result.params?.code) {
+        logger.warn('SpotifyService', 'Authentication cancelled or failed', {
+          type: result.type,
+        });
+        return false;
+      }
+
+      if (!request.codeVerifier) {
+        logger.error('SpotifyService', 'Missing PKCE code verifier');
+        return false;
+      }
+
+      const token = await this.exchangeCodeForToken({
+        code: result.params.code,
+        codeVerifier: request.codeVerifier,
+        redirectUri,
+      });
+
+      if (!token?.access_token) {
+        logger.warn('SpotifyService', 'Token exchange failed');
+        return false;
+      }
+
+      await this.saveToken(token);
+      this.isAuthenticated = true;
+      logger.info('SpotifyService', 'Authenticated');
+      return true;
+    } catch (error) {
+      logger.error('SpotifyService', 'Authentication failed', error);
+      return false;
+    }
+  }
+
+  async playTrack(track: SpotifyTrack): Promise<boolean> {
+    this.lastPlayWasSearchFallbackOnly = false;
+    try {
+      if (!this.clientId) {
+        logger.warn(
+          'SpotifyService',
+          'Spotify not configured - skipping playback'
+        );
+        return false;
+      }
+
+      const accessToken = await this.getValidAccessToken();
+      if (!accessToken) {
+        const didAuth = await this.authenticateWithPrompt();
+        if (!didAuth) {
+          return false;
+        }
+      }
+
+      const finalAccessToken = await this.getValidAccessToken();
+      if (!finalAccessToken) {
+        return false;
+      }
+
+      const uri = await this.resolveUri(track, finalAccessToken);
+      if (!uri) {
+        return false;
+      }
+
+      if (uri.startsWith('spotify:search:')) {
+        this.lastPlayWasSearchFallbackOnly = true;
+        logger.warn(
+          'SpotifyService',
+          'No track resolved; opened search only (not counted as playback success)',
+          { uri }
+        );
+        return false;
+      }
+
+      const devices = await this.getDevices(finalAccessToken);
+      if (devices.length === 0) {
+        const opened = await this.openSpotifyApp(uri);
+        if (!opened) {
+          Alert.alert(
+            'Spotify',
+            'Open Spotify once on this device, then try the command again.'
+          );
+        }
+        return opened;
+      }
+
+      const preferred = devices.find((d) => d.is_active) ?? devices[0];
+
+      const played = await this.playUriOnDevice(
+        finalAccessToken,
+        preferred.id,
+        uri
+      );
+      if (played) {
+        return true;
+      }
+
+      const transferred = await this.transferPlayback(
+        finalAccessToken,
+        preferred.id
+      );
+      if (!transferred) {
+        return await this.openSpotifyApp(uri);
+      }
+
+      return await this.playUriOnDevice(finalAccessToken, preferred.id, uri);
+    } catch (error) {
+      logger.error('SpotifyService', 'Failed to play track', error);
+      return false;
+    }
+  }
+
+  async playMusic(command: string | any): Promise<boolean> {
+    this.lastPlayWasSearchFallbackOnly = false;
+    try {
+      let track: SpotifyTrack;
+
+      if (typeof command === 'string') {
+        try {
+          const parsed = JSON.parse(command);
+          track = this.parseTrackData(parsed);
+        } catch {
+          track = { query: command };
+        }
+      } else if (typeof command === 'object') {
+        track = this.parseTrackData(command);
+      } else {
+        logger.warn(
+          'SpotifyService',
+          'Invalid play_music command format',
+          command
+        );
+        return false;
+      }
+
+      if (!this.clientId) {
+        logger.info(
+          'SpotifyService',
+          'Spotify not configured - opening search instead'
+        );
+        if (track.genreOnly && track.genre) {
+          await this.openSpotifyApp(
+            `spotify:search:${encodeURIComponent(track.genre)}`
+          );
+          return true;
+        }
+        if (track.query) {
+          await this.openSpotifyApp(
+            `spotify:search:${encodeURIComponent(track.query)}`
+          );
+          return true;
+        }
+        if (track.uri) {
+          await this.openSpotifyApp(track.uri);
+          return true;
+        }
+        if (track.trackId) {
+          await this.openSpotifyApp(`spotify:track:${track.trackId}`);
+          return true;
+        }
+        return false;
+      }
+
+      return await this.playTrack(track);
+    } catch (error) {
+      logger.error('SpotifyService', 'Failed to play music', error);
+      return false;
+    }
+  }
+
+  private parseTrackData(data: any): SpotifyTrack {
+    if (data.uri) {
+      return { uri: data.uri };
+    }
+    if (data.track_id || data.trackId) {
+      return { trackId: data.track_id || data.trackId };
+    }
+    const trackName =
+      typeof data.track_name === 'string'
+        ? data.track_name.trim()
+        : typeof data.trackName === 'string'
+          ? data.trackName.trim()
+          : '';
+    const artistName =
+      typeof data.artist_name === 'string'
+        ? data.artist_name.trim()
+        : typeof data.artistName === 'string'
+          ? data.artistName.trim()
+          : '';
+    const genre =
+      typeof data.genre === 'string'
+        ? data.genre.trim()
+        : typeof data.style === 'string'
+          ? data.style.trim()
+          : '';
+    if (genre && !trackName && !artistName) {
+      return { genre, genreOnly: true };
+    }
+    if (trackName || artistName || genre) {
+      if (trackName || artistName) {
+        const parts = [trackName, artistName].filter(Boolean);
+        const searchGenreHint =
+          genre && (trackName || artistName) ? genre : undefined;
+        return { query: parts.join(' '), searchGenreHint };
+      }
+      return { query: `${genre} music` };
+    }
+    if (data.query || data.search || data.song || data.track) {
+      return {
+        query: data.query || data.search || data.song || data.track,
+      };
+    }
+    if (typeof data === 'string') {
+      return { query: data };
+    }
+    return { query: 'music' };
+  }
+
+  private getRedirectUri(): string {
+    return this.redirectUri || 'vibedrive://spotify-callback';
+  }
+
+  private getDiscovery(): AuthSession.DiscoveryDocument {
+    return {
+      authorizationEndpoint: 'https://accounts.spotify.com/authorize',
+      tokenEndpoint: 'https://accounts.spotify.com/api/token',
+    };
+  }
+
+  private async authenticateWithPrompt(): Promise<boolean> {
+    return await new Promise((resolve) => {
+      Alert.alert(
+        'Spotify Login',
+        'Please login to Spotify to enable autoplay.',
+        [
+          {
+            text: 'Login',
+            onPress: async () => resolve(await this.authenticate()),
+          },
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        ],
+        { cancelable: true }
+      );
+    });
+  }
+
+  private async exchangeCodeForToken(params: {
+    code: string;
+    codeVerifier: string;
+    redirectUri: string;
+  }): Promise<SpotifyTokenResponse | null> {
+    const body = new URLSearchParams({
+      client_id: this.clientId,
+      grant_type: 'authorization_code',
+      code: params.code,
+      redirect_uri: params.redirectUri,
+      code_verifier: params.codeVerifier,
+    });
+
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.warn('SpotifyService', 'Token exchange HTTP error', {
+        status: response.status,
+        text,
+      });
+      return null;
+    }
+
+    return (await response.json()) as SpotifyTokenResponse;
+  }
+
+  private async refreshAccessToken(
+    refreshToken: string
+  ): Promise<SpotifyTokenResponse | null> {
+    const body = new URLSearchParams({
+      client_id: this.clientId,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
+
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.warn('SpotifyService', 'Token refresh HTTP error', {
+        status: response.status,
+        text,
+      });
+      return null;
+    }
+
+    return (await response.json()) as SpotifyTokenResponse;
+  }
+
+  private async saveToken(token: SpotifyTokenResponse): Promise<void> {
+    const expiresAt = (Date.now() + token.expires_in * 1000).toString();
+    await SecureStore.setItemAsync(this.accessTokenKey, token.access_token);
+    await SecureStore.setItemAsync(this.expiresAtKey, expiresAt);
+    if (token.refresh_token) {
+      await SecureStore.setItemAsync(this.refreshTokenKey, token.refresh_token);
+    }
+  }
+
+  private async loadToken(): Promise<{
+    accessToken: string;
+    refreshToken: string | null;
+    expiresAt: number;
+  } | null> {
+    const accessToken = await SecureStore.getItemAsync(this.accessTokenKey);
+    const expiresAtRaw = await SecureStore.getItemAsync(this.expiresAtKey);
+    const refreshToken = await SecureStore.getItemAsync(this.refreshTokenKey);
+
+    if (!accessToken || !expiresAtRaw) {
+      return null;
+    }
+
+    const expiresAt = Number(expiresAtRaw);
+    if (!Number.isFinite(expiresAt)) {
+      return null;
+    }
+
+    return { accessToken, refreshToken, expiresAt };
+  }
+
+  private async getValidAccessToken(): Promise<string | null> {
+    try {
+      const token = await this.loadToken();
+      if (!token) {
+        return null;
+      }
+
+      const now = Date.now();
+      if (token.expiresAt - now > 30_000) {
+        return token.accessToken;
+      }
+
+      if (!token.refreshToken) {
+        return null;
+      }
+
+      const refreshed = await this.refreshAccessToken(token.refreshToken);
+      if (!refreshed?.access_token) {
+        return null;
+      }
+
+      await this.saveToken({
+        ...refreshed,
+        refresh_token: refreshed.refresh_token ?? token.refreshToken,
+      });
+
+      return refreshed.access_token;
+    } catch (error) {
+      logger.error('SpotifyService', 'Failed to get valid access token', error);
+      return null;
+    }
+  }
+
+  private async spotifyApi<T>(
+    accessToken: string,
+    path: string,
+    init?: RequestInit
+  ): Promise<{
+    ok: boolean;
+    status: number;
+    data: T | null;
+    raw: string | null;
+  }> {
+    const response = await fetch(`https://api.spotify.com${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    });
+
+    const raw = await response.text();
+    if (!response.ok) {
+      return { ok: false, status: response.status, data: null, raw };
+    }
+
+    if (!raw) {
+      return { ok: true, status: response.status, data: null, raw: null };
+    }
+
+    try {
+      return {
+        ok: true,
+        status: response.status,
+        data: JSON.parse(raw) as T,
+        raw,
+      };
+    } catch (error) {
+      logger.error('SpotifyService', 'Spotify API JSON parse failed', {
+        path,
+        error,
+        rawSnippet: raw.slice(0, 240),
+      });
+      return { ok: false, status: response.status, data: null, raw };
+    }
+  }
+
+  private async resolveUri(
+    track: SpotifyTrack,
+    accessToken: string
+  ): Promise<string | null> {
+    if (track.uri) {
+      return track.uri;
+    }
+
+    if (track.trackId) {
+      return `spotify:track:${track.trackId}`;
+    }
+
+    if (track.genreOnly && track.genre) {
+      const playlistPaths = [
+        `/v1/search?q=${encodeURIComponent(track.genre)}&type=playlist&limit=1&market=from_token`,
+        `/v1/search?q=${encodeURIComponent(track.genre)}&type=playlist&limit=1`,
+      ];
+      for (const path of playlistPaths) {
+        const playlistSearch = await this.spotifyApi<{
+          playlists?: { items?: Array<{ uri: string }> };
+        }>(accessToken, path);
+
+        if (
+          playlistSearch.ok &&
+          playlistSearch.data?.playlists?.items?.length
+        ) {
+          const playlistUri = playlistSearch.data.playlists.items[0].uri;
+          logger.info('SpotifyService', 'Resolved genre to playlist', {
+            genre: track.genre,
+            playlistUri,
+          });
+          return playlistUri;
+        }
+
+        logger.warn('SpotifyService', 'Genre playlist search attempt empty', {
+          status: playlistSearch.status,
+          raw: playlistSearch.raw,
+        });
+      }
+      logger.warn('SpotifyService', 'Genre playlist search failed', {
+        genre: track.genre,
+      });
+    }
+
+    const textQuery =
+      track.query ??
+      (track.genreOnly && track.genre ? `${track.genre} music` : undefined);
+
+    if (!textQuery) {
+      Alert.alert('Spotify', 'No query provided.');
+      return null;
+    }
+
+    const queryVariants: string[] = [textQuery, `track:${textQuery}`];
+    if (track.searchGenreHint) {
+      queryVariants.push(`${textQuery} ${track.searchGenreHint}`);
+      queryVariants.push(`track:${textQuery} genre:${track.searchGenreHint}`);
+    }
+
+    const seenPaths = new Set<string>();
+    for (const qv of queryVariants) {
+      for (const useMarket of [true, false]) {
+        const path =
+          `/v1/search?q=${encodeURIComponent(qv)}&type=track&limit=10` +
+          (useMarket ? '&market=from_token' : '');
+        if (seenPaths.has(path)) {
+          continue;
+        }
+        seenPaths.add(path);
+
+        const search = await this.spotifyApi<{
+          tracks?: { items?: Array<{ uri: string }> };
+        }>(accessToken, path);
+
+        if (search.ok && search.data?.tracks?.items?.length) {
+          const picked = search.data.tracks.items[0].uri;
+          logger.info('SpotifyService', 'Resolved track from search', {
+            qv,
+            useMarket,
+            picked,
+          });
+          return picked;
+        }
+
+        logger.warn('SpotifyService', 'Search attempt failed or empty', {
+          qv,
+          useMarket,
+          status: search.status,
+          raw: search.raw,
+        });
+      }
+    }
+
+    const searchUri = `spotify:search:${encodeURIComponent(textQuery)}`;
+    const opened = await this.openSpotifyApp(searchUri);
+    if (!opened) {
+      logger.warn('SpotifyService', 'Search fallback open failed', {
+        textQuery,
+      });
+      return null;
+    }
+    logger.info('SpotifyService', 'Opened Spotify search fallback', {
+      searchUri,
+    });
+    return searchUri;
+  }
+
+  private async getDevices(accessToken: string): Promise<SpotifyDevice[]> {
+    const result = await this.spotifyApi<{ devices: SpotifyDevice[] }>(
+      accessToken,
+      '/v1/me/player/devices'
+    );
+
+    if (!result.ok || !result.data?.devices) {
+      logger.warn('SpotifyService', 'Failed to get devices', {
+        status: result.status,
+        raw: result.raw,
+      });
+      return [];
+    }
+
+    return result.data.devices;
+  }
+
+  private async playUriOnDevice(
+    accessToken: string,
+    deviceId: string,
+    uri: string
+  ): Promise<boolean> {
+    const body = uri.startsWith('spotify:playlist:')
+      ? JSON.stringify({ context_uri: uri })
+      : JSON.stringify({ uris: [uri] });
+
+    const result = await this.spotifyApi<unknown>(
+      accessToken,
+      `/v1/me/player/play?device_id=${encodeURIComponent(deviceId)}`,
+      {
+        method: 'PUT',
+        body,
+      }
+    );
+
+    if (!result.ok) {
+      logger.warn('SpotifyService', 'Play failed', {
+        status: result.status,
+        raw: result.raw,
+      });
+      return false;
+    }
+
+    logger.info('SpotifyService', 'Playback started', { deviceId, uri });
+    return true;
+  }
+
+  private async transferPlayback(
+    accessToken: string,
+    deviceId: string
+  ): Promise<boolean> {
+    const result = await this.spotifyApi<unknown>(
+      accessToken,
+      '/v1/me/player',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ device_ids: [deviceId], play: false }),
+      }
+    );
+
+    if (!result.ok) {
+      logger.warn('SpotifyService', 'Transfer playback failed', {
+        status: result.status,
+        raw: result.raw,
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  private searchQueryFromSpotifySearchUri(uri: string): string {
+    const raw = uri.slice('spotify:search:'.length);
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+
+  private async openSpotifyApp(uri: string): Promise<boolean> {
+    const openWebFallbacks = async (): Promise<boolean> => {
+      if (uri.startsWith('spotify:track:')) {
+        const id = uri.replace('spotify:track:', '');
+        await Linking.openURL(`https://open.spotify.com/track/${id}`);
+        return true;
+      }
+
+      if (uri.startsWith('spotify:playlist:')) {
+        const id = uri.replace('spotify:playlist:', '');
+        await Linking.openURL(`https://open.spotify.com/playlist/${id}`);
+        return true;
+      }
+
+      if (uri.startsWith('spotify:search:')) {
+        const searchQuery = this.searchQueryFromSpotifySearchUri(uri);
+        await Linking.openURL(
+          `https://open.spotify.com/search/${encodeURIComponent(searchQuery)}`
+        );
+        return true;
+      }
+
+      if (Platform.OS === 'android') {
+        await Linking.openURL(
+          'https://play.google.com/store/apps/details?id=com.spotify.music'
+        );
+        return true;
+      }
+      return false;
+    };
+
+    try {
+      logger.info('SpotifyService', 'Opening Spotify', { uri });
+      if (uri.startsWith('spotify:search:') && Platform.OS === 'android') {
+        const searchQuery = this.searchQueryFromSpotifySearchUri(uri);
+        const httpsSearch = `https://open.spotify.com/search/${encodeURIComponent(searchQuery)}`;
+        try {
+          await Linking.openURL(httpsSearch);
+          logger.info('SpotifyService', 'Opened Spotify search via HTTPS', {
+            searchQuery,
+          });
+          return true;
+        } catch (e) {
+          logger.warn(
+            'SpotifyService',
+            'HTTPS search open failed (Android)',
+            e
+          );
+        }
+      }
+      if (uri.startsWith('spotify:track:') && Platform.OS === 'android') {
+        const id = uri.replace('spotify:track:', '');
+        const httpsTrack = `https://open.spotify.com/track/${id}`;
+        try {
+          await Linking.openURL(httpsTrack);
+          logger.info('SpotifyService', 'Successfully opened Spotify');
+          return true;
+        } catch (e) {
+          logger.warn('SpotifyService', 'HTTPS track open failed', e);
+        }
+      }
+      if (Platform.OS === 'ios') {
+        const canOpen = await Linking.canOpenURL(uri);
+        if (!canOpen) {
+          logger.warn(
+            'SpotifyService',
+            'Cannot open Spotify URI, trying web fallback',
+            { uri }
+          );
+          throw new Error('Cannot open Spotify URI');
+        }
+      }
+      await Linking.openURL(uri);
+      logger.info('SpotifyService', 'Successfully opened Spotify');
+      return true;
+    } catch (error) {
+      logger.warn('SpotifyService', 'Failed to open Spotify app', error);
+      return await openWebFallbacks();
+    }
+  }
+
+  getLastPlayWasSearchFallbackOnly(): boolean {
+    return this.lastPlayWasSearchFallbackOnly;
+  }
+
+  getIsAuthenticated(): boolean {
+    return this.isAuthenticated;
+  }
+
+  setAuthenticated(authenticated: boolean) {
+    this.isAuthenticated = authenticated;
+  }
+}
+
+export const spotifyService = new SpotifyService();

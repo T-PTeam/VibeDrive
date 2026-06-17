@@ -1,0 +1,350 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../../App';
+import { getPhpApiUrl } from '../config/api';
+import {
+  PHP_API_TOKEN_KEY,
+  PHP_API_USER_ID_KEY,
+  PHP_API_USER_NAME_KEY,
+} from '../constants/auth';
+import { locationService } from '../services/LocationService';
+import { savePhpSession } from '../utils/phpSession';
+import LegalAgreement from '../components/LegalAgreement';
+import { saveLegalAccepted, getLegalAccepted } from '../utils/legal';
+import { logAsyncError, logAsyncRejection } from '../utils/asyncErrors';
+
+type LoginScreenNavigationProp = NativeStackNavigationProp<
+  RootStackParamList,
+  'Login'
+>;
+
+interface Props {
+  navigation: LoginScreenNavigationProp;
+}
+
+export default function LoginScreen({ navigation }: Props) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [legalChecked, setLegalChecked] = useState(false);
+  const [legalError, setLegalError] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await SecureStore.getItemAsync(PHP_API_TOKEN_KEY);
+        const storedUserId =
+          await SecureStore.getItemAsync(PHP_API_USER_ID_KEY);
+        if (cancelled) return;
+        if (token && storedUserId) {
+          const userName =
+            (await SecureStore.getItemAsync(PHP_API_USER_NAME_KEY)) ||
+            undefined;
+          locationService.startWatching();
+          navigation.reset({
+            index: 0,
+            routes: [
+              {
+                name: 'Navigation',
+                params: { userId: storedUserId, userName },
+              },
+            ],
+          });
+          return;
+        }
+      } catch (e) {
+        logAsyncError('LoginScreen', 'sessionBootstrap', e);
+      } finally {
+        if (!cancelled) setCheckingSession(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigation]);
+
+  useEffect(() => {
+    getLegalAccepted()
+      .then((accepted) => {
+        if (accepted) setLegalChecked(true);
+      })
+      .catch(logAsyncRejection('LoginScreen', 'getLegalAccepted'));
+  }, []);
+
+  const handleToggleLegal = () => {
+    setLegalChecked((prev) => !prev);
+    setLegalError(false);
+  };
+
+  const guardLegal = (): boolean => {
+    if (!legalChecked) {
+      setLegalError(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleLogin = async () => {
+    if (!guardLegal()) return;
+    if (!username.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please enter both username and password');
+      return;
+    }
+
+    setLoading(true);
+    const baseUrl = getPhpApiUrl();
+    const loginUrl = `${baseUrl}/login`;
+    const timeoutMs = 15000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const pingController = new AbortController();
+      const pingTimeout = setTimeout(() => pingController.abort(), 5000);
+      let pingRes: Response | null = null;
+      let pingError: string | null = null;
+      try {
+        pingRes = await fetch(`${baseUrl}/ping`, {
+          method: 'GET',
+          signal: pingController.signal,
+        });
+      } catch (e: any) {
+        pingError = e?.message ?? 'Network error';
+      }
+      clearTimeout(pingTimeout);
+      if (pingRes?.ok !== true) {
+        setLoading(false);
+        const status = pingRes
+          ? `HTTP ${pingRes.status}`
+          : (pingError ?? 'timeout/connection failed');
+        const reason =
+          !pingRes &&
+          (pingError?.toLowerCase().includes('abort') ||
+            pingError?.toLowerCase().includes('timeout'))
+            ? 'Request timed out. Is anything listening on that URL?'
+            : !pingRes
+              ? 'Connection refused or no response. Simulator: Docker full stack (nginx 8082). Physical iPhone: set EXPO_PUBLIC_API_HOST to your Mac LAN IP in mobile-app/.env (same Wi‑Fi), keep EXPO_PUBLIC_* URLs on 127.0.0.1, restart Metro with -c.'
+              : `Server returned ${status}. Check Nginx and Laravel are up.`;
+        Alert.alert('Server unreachable', `URL: ${loginUrl}\n\n${reason}`);
+        return;
+      }
+
+      const response = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          login: username.trim(),
+          password: password.trim(),
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const raw = await response.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        logAsyncError('LoginScreen', 'parseLoginResponseJson', e);
+        const preview = raw.slice(0, 80).replace(/\s+/g, ' ');
+        Alert.alert(
+          'Server error',
+          `Backend returned non-JSON (likely an error page). Check Laravel logs.\n\nStatus: ${response.status}\nPreview: ${preview}${raw.length > 80 ? '…' : ''}`
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        const message =
+          (data?.message as string) ??
+          (data?.errors as Record<string, string[]>)?.login?.[0] ??
+          'Login failed';
+        Alert.alert('Login failed', message);
+        return;
+      }
+
+      if (data?.status === 'success' && data?.data) {
+        const payload = data.data as { name?: string; token?: string };
+        const userId = username.trim();
+        const userName = payload?.name ?? username.trim();
+        if (payload?.token) {
+          await savePhpSession(payload.token, userId, userName);
+        }
+        await saveLegalAccepted();
+        locationService.startWatching();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Navigation', params: { userId, userName } }],
+        });
+      } else {
+        Alert.alert('Login failed', 'Invalid response from server');
+      }
+    } catch (error: any) {
+      logAsyncError('LoginScreen', 'handleLogin', error);
+      clearTimeout(timeoutId);
+      const isAbort = error?.name === 'AbortError';
+      const message = isAbort
+        ? `Request timed out to ${loginUrl}. Same Wi‑Fi? Backend on Mac? (infrastructure: docker compose --profile full up -d). PHP via nginx is host port 8082.`
+        : (error?.message ??
+          'Could not reach server. Check network and try again.');
+      Alert.alert(isAbort ? 'Connection timeout' : 'Error', message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (checkingSession) {
+    return (
+      <View style={[styles.container, styles.sessionGate]}>
+        <ActivityIndicator size="large" color="#000000" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>VibeDrive</Text>
+        <Text style={styles.subtitle}>Welcome back</Text>
+
+        <LegalAgreement
+          checked={legalChecked}
+          onToggle={handleToggleLegal}
+          showError={legalError}
+        />
+
+        <View style={styles.form}>
+          <TextInput
+            style={styles.input}
+            placeholder="Username"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.buttonText}>Login</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.createAccountButton}
+            onPress={() => navigation.navigate('Register')}
+          >
+            <Text style={styles.createAccountButtonText}>Create account</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  sessionGate: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#000000',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666666',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  note: {
+    fontSize: 12,
+    color: '#999999',
+    marginBottom: 16,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  createAccountButton: {
+    height: 50,
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  createAccountButtonText: {
+    color: '#000000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  form: {
+    width: '100%',
+  },
+  input: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    fontSize: 16,
+    backgroundColor: '#ffffff',
+  },
+  button: {
+    height: 50,
+    backgroundColor: '#000000',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+});
